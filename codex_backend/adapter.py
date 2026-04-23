@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import os
+import shutil
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable
@@ -17,6 +19,31 @@ from .contracts import (
 )
 
 ResultInvoker = Callable[[str, Mapping[str, Any]], Any]
+
+_DIRECT_PATH_KEYS = (
+    "saved_path",
+    "savedPath",
+    "image_path",
+    "imagePath",
+    "file_path",
+    "filePath",
+    "output_path",
+    "outputPath",
+    "path",
+    "local_path",
+    "localPath",
+)
+_NESTED_PATH_KEYS = (
+    "result",
+    "image",
+    "output",
+    "outputs",
+    "images",
+    "artifacts",
+    "data",
+    "items",
+    "turn",
+)
 
 
 def _as_mapping(raw: Any) -> Mapping[str, Any]:
@@ -41,49 +68,6 @@ def _as_mapping(raw: Any) -> Mapping[str, Any]:
     return {}
 
 
-def _candidate_paths(mode: str) -> Sequence[tuple[str, ...]]:
-    if mode == TEXT_TO_IMAGE_MODE:
-        return (
-            ("generate_text_to_image",),
-            ("text_to_image",),
-            ("generate_image",),
-            ("client", "generate_text_to_image"),
-            ("client", "text_to_image"),
-            ("client", "generate_image"),
-        )
-
-    return (
-        ("generate_image_to_image",),
-        ("image_to_image",),
-        ("edit_image",),
-        ("client", "generate_image_to_image"),
-        ("client", "image_to_image"),
-        ("client", "edit_image"),
-    )
-
-
-def _resolve_attr(root: Any, path: Sequence[str]) -> Any:
-    current = root
-    for segment in path:
-        if not hasattr(current, segment):
-            return None
-        current = getattr(current, segment)
-    return current
-
-
-def _coerce_callable(candidate: Any) -> Callable[..., Any] | None:
-    if isinstance(candidate, type):
-        try:
-            candidate = candidate()
-        except TypeError:
-            return None
-
-    if callable(candidate):
-        return candidate
-
-    return None
-
-
 def _load_codex_app_server() -> Any:
     try:
         return importlib.import_module("codex_app_server")
@@ -104,31 +88,127 @@ def _module_runtime_evidence(module: Any) -> dict[str, Any]:
     }
 
 
-def _call_candidate(candidate: Callable[..., Any], payload: Mapping[str, Any]) -> Any:
-    try:
-        return candidate(**payload)
-    except TypeError:
-        prompt = payload.get("prompt")
-        input_image_path = payload.get("input_image_path")
-        extra = {key: value for key, value in payload.items() if key not in {"prompt", "input_image_path"}}
-        if input_image_path is None:
-            return candidate(prompt, **extra)
-        return candidate(prompt, input_image_path, **extra)
+def _resolve_codex_bin(payload: Mapping[str, Any]) -> str:
+    explicit = payload.get("codex_bin")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+
+    env_value = os.environ.get("CODEX_BIN")
+    if isinstance(env_value, str) and env_value.strip():
+        return env_value.strip()
+
+    resolved = shutil.which("codex")
+    if resolved:
+        return resolved
+
+    raise CodexExtensionError(
+        RUNTIME_CODE_CALL_FAILED,
+        "Unable to resolve the local codex binary for AppServerConfig.codex_bin.",
+    )
+
+
+def _stringify_param_value(value: Any) -> str:
+    if isinstance(value, float):
+        return f"{value:.4g}"
+    if isinstance(value, Path):
+        return str(value)
+    return str(value)
+
+
+def _build_instruction_text(mode: str, payload: Mapping[str, Any]) -> str:
+    prompt = str(payload.get("prompt", "")).strip()
+    extra_lines = []
+    for key, value in payload.items():
+        if key in {"prompt", "input_image_path", "codex_bin"} or value is None:
+            continue
+        extra_lines.append(f"- {key}: {_stringify_param_value(value)}")
+
+    lines = [
+        (
+            "Create exactly one new image."
+            if mode == TEXT_TO_IMAGE_MODE
+            else "Edit the provided local image into exactly one output image."
+        ),
+        "Save the final image to a local file so the app-server returns a saved path.",
+        "Do not create multiple variants.",
+        f"Prompt: {prompt}",
+    ]
+    if payload.get("input_image_path") is not None:
+        lines.append("Use the attached local reference image as the source input.")
+    if extra_lines:
+        lines.append("Requested generation hints:")
+        lines.extend(extra_lines)
+    return "\n".join(lines)
+
+
+def _sdk_thread_inputs(module: Any, mode: str, payload: Mapping[str, Any]) -> list[Any]:
+    inputs = [module.TextInput(_build_instruction_text(mode, payload))]
+    input_image_path = payload.get("input_image_path")
+    if mode == IMAGE_TO_IMAGE_MODE and input_image_path is not None:
+        inputs.append(module.LocalImageInput(str(Path(str(input_image_path)).expanduser().resolve())))
+    return inputs
+
+
+def _turn_status_value(turn: Any) -> str | None:
+    status = getattr(turn, "status", None)
+    if status is None:
+        return None
+    return getattr(status, "value", str(status))
+
+
+def _raise_for_failed_turn(turn: Any) -> None:
+    if _turn_status_value(turn) != "failed":
+        return
+
+    error = getattr(turn, "error", None)
+    message = getattr(error, "message", None) if error is not None else None
+    raise CodexExtensionError(
+        RUNTIME_CODE_CALL_FAILED,
+        (message or "codex_app_server reported a failed turn.").strip(),
+    )
+
+
+def _find_turn(turns: Sequence[Any] | None, turn_id: str) -> Any | None:
+    for turn in turns or ():
+        if getattr(turn, "id", None) == turn_id:
+            return turn
+    return None
+
+
+def _run_sdk_turn(module: Any, mode: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    config = module.AppServerConfig(codex_bin=_resolve_codex_bin(payload), cwd=os.getcwd())
+    inputs = _sdk_thread_inputs(module, mode, payload)
+
+    with module.Codex(config=config) as codex:
+        thread = codex.thread_start()
+        turn_handle = thread.turn(inputs)
+        completed_turn = turn_handle.run()
+        _raise_for_failed_turn(completed_turn)
+        persisted = thread.read(include_turns=True)
+        persisted_turn = _find_turn(getattr(getattr(persisted, "thread", None), "turns", None), turn_handle.id)
+        persisted_items = list(getattr(persisted_turn, "items", None) or [])
+        server_info = getattr(codex.metadata, "serverInfo", None)
+        return {
+            "items": persisted_items,
+            "turn_id": turn_handle.id,
+            "turn_status": _turn_status_value(completed_turn),
+            "server_info": {
+                "name": getattr(server_info, "name", None),
+                "version": getattr(server_info, "version", None),
+            },
+        }
 
 
 def _default_invoke(mode: str, payload: Mapping[str, Any]) -> Any:
     module = _load_codex_app_server()
-    for candidate_path in _candidate_paths(mode):
-        resolved = _resolve_attr(module, candidate_path)
-        callable_candidate = _coerce_callable(resolved)
-        if callable_candidate is None:
-            continue
-        return _call_candidate(callable_candidate, payload)
-
-    raise CodexExtensionError(
-        RUNTIME_CODE_CALL_FAILED,
-        f"codex_app_server does not expose a supported {mode} entrypoint.",
-    )
+    required_exports = ("Codex", "AppServerConfig", "TextInput", "LocalImageInput")
+    missing_exports = [name for name in required_exports if not hasattr(module, name)]
+    if missing_exports:
+        raise CodexExtensionError(
+            RUNTIME_CODE_CALL_FAILED,
+            "codex_app_server is missing required public exports: " + ", ".join(missing_exports),
+        )
+    return _run_sdk_turn(module, mode, payload)
 
 
 def _extract_saved_path(raw: Any) -> str | None:
@@ -139,12 +219,12 @@ def _extract_saved_path(raw: Any) -> str | None:
         return str(raw)
 
     if isinstance(raw, Mapping):
-        for key in ("saved_path", "image_path", "file_path", "output_path", "path", "local_path"):
+        for key in _DIRECT_PATH_KEYS:
             value = raw.get(key)
             if isinstance(value, (str, Path)) and str(value).strip():
                 return str(value)
 
-        for key in ("result", "image", "output", "outputs", "images", "artifacts", "data"):
+        for key in _NESTED_PATH_KEYS:
             value = raw.get(key)
             extracted = _extract_saved_path(value)
             if extracted:
@@ -177,7 +257,7 @@ def _collect_saved_paths(raw: Any) -> list[str]:
 
     if isinstance(raw, Mapping):
         direct_paths: list[str] = []
-        for key in ("saved_path", "image_path", "file_path", "output_path", "path", "local_path"):
+        for key in _DIRECT_PATH_KEYS:
             value = raw.get(key)
             if isinstance(value, (str, Path)) and str(value).strip():
                 direct_paths.append(str(value))
@@ -186,7 +266,7 @@ def _collect_saved_paths(raw: Any) -> list[str]:
             return direct_paths
 
         nested_paths: list[str] = []
-        for key in ("result", "image", "output", "outputs", "images", "artifacts", "data"):
+        for key in _NESTED_PATH_KEYS:
             nested_paths.extend(_collect_saved_paths(raw.get(key)))
         return nested_paths
 

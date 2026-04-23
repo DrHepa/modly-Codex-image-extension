@@ -2,7 +2,7 @@
 
 ## Status
 - **Locked for V1**: accepted Codex runtime evidence source, compatible version policy, extension dependency strategy, planned identity/runtime identity separation, and Python-first subprocess packaging shape.
-- **Documented assumption only**: a compatible local Codex installation plus `codex_app_server` source remains obtainable by the user/team outside this repository; V1 does not automate acquisition.
+- **Locked for current V1 host path**: a reviewed pinned direct-source install is used to acquire `codex_app_server` during extension setup.
 
 ## Locked: accepted Codex runtime evidence source
 
@@ -25,7 +25,7 @@ V1 accepts **local runtime evidence only** for Codex detection/version reporting
 V1 locks a **conservative compatibility rule**:
 
 - Supported Codex runtime evidence: **only the exact local runtime major version(s) explicitly approved by this repository's tests/docs at implementation time**.
-- Current V1 bootstrap approval: **no open semantic version range is granted yet**.
+- Current V1 bootstrap approval: **`0.122.0` only** unless the allowlist is explicitly overridden.
 - Until integration/preflight work proves more, later implementation must treat compatibility as an **allowlist check backed by direct runtime evidence**, not a permissive `>=` range.
 
 ### Current V1 assumption
@@ -42,10 +42,9 @@ V1 locks a **conservative source-based strategy** for `codex_app_server`:
 
 ### Required strategy
 - Keep `codex_app_server` out of hard runtime installation requirements in `pyproject.toml` for now.
-- Treat acquisition as a **documented external prerequisite** until the project pins a provable source snapshot.
-- When the adapter is implemented, dependency wiring must support one of these explicit strategies only:
-  - a vendored source snapshot committed into the repo, or
-  - a pinned direct-source install reference backed by a reviewed upstream location.
+- Use a **pinned direct-source install reference** backed by a reviewed upstream location.
+- Current reviewed source pin: `git+https://github.com/openai/codex.git@a9f75e5cda2d6ff469a859baf8d2f50b9b04944a#subdirectory=sdk/python`.
+- The adapter must pass `AppServerConfig(codex_bin=...)` explicitly because the source install does not include the published pinned runtime package.
 
 ### Rejected for V1
 - Unpinned floating install instructions.

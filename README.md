@@ -28,16 +28,16 @@ This project is an independent integration experiment and is **not** affiliated 
 - Python environment compatible with this repo's subprocess extension shape.
 - Local `codex` executable available on `PATH`.
 - Local Codex session already authenticated with a supported ChatGPT entitlement.
-- `codex_app_server` available through the externally managed acquisition path documented in `docs/decisions/v1-locks.md`.
-- Supported host platform for V1: `darwin/arm64`, `darwin/x86_64`, or `linux/x86_64`.
-- Approved Codex runtime version explicitly allowlisted through `CODEX_SUPPORTED_VERSIONS` or an equivalent caller-provided allowlist.
+- Extension setup installs `codex_app_server` from the reviewed pinned source documented in `docs/decisions/v1-locks.md` unless explicitly overridden.
+- Supported host platform for V1: `darwin/arm64`, `darwin/x86_64`, `linux/x86_64`, or the current host-preview path `linux/arm64`.
+- Approved Codex runtime version explicitly allowlisted through `CODEX_SUPPORTED_VERSIONS` or the current default lock (`0.122.0`).
 
 ## Setup contract
 
 V1 is intentionally **model-managed-setup**, not self-installing.
 
 - **User-managed**: Codex install, Codex login, and entitlement availability.
-- **Extension-managed**: preflight checks for executable presence, supported platform, approved runtime version, authentication state, entitlement state, and output-target validity.
+- **Extension-managed**: pinned `codex_app_server` SDK bootstrap plus preflight checks for executable presence, supported platform, approved runtime version, authentication state, entitlement state, and output-target validity.
 
 Planned extension identity stays in `manifest.json`. Any detected runtime name/version is runtime evidence only and MUST NOT replace planned identity.
 
@@ -96,7 +96,7 @@ Human-readable messaging for these codes lives in `codex_backend/errors.py`.
 
 - **Resolution**: planned
 - **Implementation profile**: python-local-bridge
-- **Setup contract**: user-managed Codex install+login, extension-managed preflight
+- **Setup contract**: user-managed Codex install+login, extension-managed SDK bootstrap+preflight
 - **Support state**: experimental
 - **Surface owner**: FastAPI model extension
 - **Headless eligible**: conditional

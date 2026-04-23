@@ -2,8 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from codex_backend.adapter import CodexAdapter, normalize_result
-from codex_backend.contracts import IMAGE_TO_IMAGE_MODE, RUNTIME_CODE_NO_OUTPUT, TEXT_TO_IMAGE_MODE, GenerateRequest
+from codex_backend.contracts import (
+    IMAGE_TO_IMAGE_MODE,
+    RUNTIME_CODE_CALL_FAILED,
+    RUNTIME_CODE_NO_OUTPUT,
+    TEXT_TO_IMAGE_MODE,
+    GenerateRequest,
+)
 
 
 def test_adapter_maps_prompt_only_requests_to_text_to_image() -> None:
@@ -58,3 +66,45 @@ def test_normalize_result_returns_no_output_code_when_saved_path_is_missing() ->
     assert result.saved_path is None
     assert result.machine_code == RUNTIME_CODE_NO_OUTPUT
     assert result.metadata == {"output": {}, "media_type": "image"}
+
+
+def test_normalize_result_extracts_saved_path_from_sdk_items_mapping() -> None:
+    result = normalize_result(
+        {
+            "items": [
+                {
+                    "type": "imageGeneration",
+                    "saved_path": "/tmp/generated.png",
+                }
+            ]
+        }
+    )
+
+    assert result.saved_path == Path("/tmp/generated.png")
+    assert result.machine_code is None
+
+
+def test_normalize_result_extracts_saved_path_from_sdk_camel_case_mapping() -> None:
+    result = normalize_result(
+        {
+            "items": [
+                {
+                    "type": "imageGeneration",
+                    "savedPath": "/tmp/generated-camel.png",
+                }
+            ]
+        }
+    )
+
+    assert result.saved_path == Path("/tmp/generated-camel.png")
+    assert result.machine_code is None
+
+
+def test_default_adapter_reports_missing_public_sdk_exports(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr("codex_backend.adapter._load_codex_app_server", lambda: object())
+
+    with pytest.raises(Exception) as exc_info:
+        CodexAdapter().text_to_image("draw a fox")
+
+    assert getattr(exc_info.value, "machine_code", None) == RUNTIME_CODE_CALL_FAILED
+    assert "missing required public exports" in str(exc_info.value)

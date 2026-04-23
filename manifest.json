@@ -16,7 +16,7 @@
   "metadata": {
     "resolution": "planned",
     "implementation_profile": "python-local-bridge",
-    "setup_contract": "user-managed Codex install+login, extension-managed preflight",
+    "setup_contract": "user-managed Codex install+login, extension-managed SDK bootstrap+preflight",
     "support_state": "experimental",
     "surface_owner": "FastAPI model extension",
     "headless_eligible": "conditional",

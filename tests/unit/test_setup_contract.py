@@ -36,6 +36,16 @@ def test_parse_args_accepts_optional_codex_source(tmp_path):
     assert payload["codex_app_server_source"] == "git+https://example.invalid/codex.git"
 
 
+def test_resolve_codex_app_server_source_defaults_to_reviewed_pin(tmp_path):
+    module = _load_setup_module()
+
+    payload = module.parse_args([
+        '{"python_exe":"python3.12","ext_dir":"%s"}' % tmp_path,
+    ])
+
+    assert module.resolve_codex_app_server_source(payload) == module.DEFAULT_CODEX_APP_SERVER_SOURCE
+
+
 def test_normalize_payload_rejects_missing_python_exe(tmp_path):
     module = _load_setup_module()
 

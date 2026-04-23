@@ -19,11 +19,18 @@ passes the payload as a single JSON positional argument.
 from __future__ import annotations
 
 import json
+import os
 import platform
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+DEFAULT_CODEX_APP_SERVER_SOURCE = (
+    "git+https://github.com/openai/codex.git"
+    "@a9f75e5cda2d6ff469a859baf8d2f50b9b04944a"
+    "#subdirectory=sdk/python"
+)
 
 
 def repo_root() -> Path:
@@ -85,6 +92,18 @@ def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def resolve_codex_app_server_source(payload: dict[str, Any]) -> str:
+    source = payload.get("codex_app_server_source")
+    if isinstance(source, str) and source.strip():
+        return source.strip()
+
+    env_source = os.environ.get("CODEX_APP_SERVER_SOURCE")
+    if isinstance(env_source, str) and env_source.strip():
+        return env_source.strip()
+
+    return DEFAULT_CODEX_APP_SERVER_SOURCE
+
+
 def create_venv(python_exe: str, ext_dir: Path) -> Path:
     venv_dir = ext_dir / "venv"
     print(f"[setup] Creating extension venv at {venv_dir} …")
@@ -103,13 +122,7 @@ def bootstrap_packaging_tools(venv_dir: Path) -> None:
 
 
 def install_optional_codex_app_server(venv_dir: Path, payload: dict[str, Any]) -> None:
-    source = payload.get("codex_app_server_source")
-    if not isinstance(source, str) or not source.strip():
-        print(
-            "[setup] codex_app_server source not provided. "
-            "Leaving Codex SDK acquisition as an external prerequisite for V1."
-        )
-        return
+    source = resolve_codex_app_server_source(payload)
 
     print(f"[setup] Installing codex_app_server from reviewed source: {source}")
     pip_install(venv_dir, "install", source)

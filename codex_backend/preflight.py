@@ -22,11 +22,13 @@ from .contracts import (
 SUPPORTED_PLATFORM_MATRIX = {
     ("darwin", "arm64"),
     ("darwin", "x86_64"),
+    ("linux", "arm64"),
     ("linux", "x86_64"),
 }
 AUTHENTICATED_STATES = {"active", "authenticated", "logged_in", "ok"}
 ENTITLED_STATES = {"active", "entitled", "ok", "plus", "pro", "team"}
 VERSION_PATTERN = re.compile(r"(\d+(?:\.\d+){1,3})")
+DEFAULT_SUPPORTED_VERSIONS = ("0.122.0",)
 
 
 def _run_command(command: Sequence[str], *, timeout: int = 10) -> subprocess.CompletedProcess[str]:
@@ -65,7 +67,8 @@ def _load_supported_versions(explicit: Sequence[str] | None = None) -> tuple[str
         return tuple(version.strip() for version in explicit if version and version.strip())
 
     raw = os.environ.get("CODEX_SUPPORTED_VERSIONS", "")
-    return tuple(version.strip() for version in raw.split(",") if version.strip())
+    env_versions = tuple(version.strip() for version in raw.split(",") if version.strip())
+    return env_versions or DEFAULT_SUPPORTED_VERSIONS
 
 
 def _parse_version(raw_output: str) -> str | None:
@@ -129,6 +132,8 @@ def detect_auth_states(
         return env_auth, env_entitlement, None
 
     commands = (
+        [executable, "login", "status", "--json"],
+        [executable, "login", "status"],
         [executable, "auth", "status", "--json"],
         [executable, "auth", "status"],
     )
@@ -169,7 +174,9 @@ def detect_auth_states(
         elif "not logged in" in normalized_output or "unauthenticated" in normalized_output:
             auth_state = "unauthenticated"
 
-        if any(token in normalized_output for token in ("chatgpt plus", "chatgpt pro", "entitled")):
+        if "logged in using chatgpt" in normalized_output:
+            entitlement_state = "entitled"
+        elif any(token in normalized_output for token in ("chatgpt plus", "chatgpt pro", "entitled")):
             entitlement_state = "entitled"
         elif "no entitlement" in normalized_output or "free plan" in normalized_output:
             entitlement_state = "none"
@@ -284,6 +291,7 @@ def run_preflight(
 
 __all__ = [
     "AUTHENTICATED_STATES",
+    "DEFAULT_SUPPORTED_VERSIONS",
     "ENTITLED_STATES",
     "SUPPORTED_PLATFORM_MATRIX",
     "detect_auth_states",

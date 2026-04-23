@@ -9,7 +9,7 @@ from codex_backend.contracts import (
     PREFLIGHT_CODE_UNSUPPORTED_PLATFORM,
     PREFLIGHT_CODE_UNSUPPORTED_VERSION,
 )
-from codex_backend.preflight import run_preflight
+from codex_backend.preflight import detect_auth_states, run_preflight
 
 
 def test_run_preflight_passes_for_supported_authenticated_entitled_runtime() -> None:
@@ -32,6 +32,36 @@ def test_run_preflight_passes_for_supported_authenticated_entitled_runtime() -> 
     assert report.supported_version_range == "1.2.3"
 
 
+def test_run_preflight_uses_default_allowlist_when_env_is_not_set() -> None:
+    report = run_preflight(
+        executable="codex",
+        which=lambda _: "/usr/local/bin/codex",
+        runner=lambda command: type("Proc", (), {"returncode": 0, "stdout": "codex 0.122.0", "stderr": ""})(),
+        platform_resolver=lambda: "Linux",
+        machine_resolver=lambda: "arm64",
+        auth_detector=lambda _: ("authenticated", "entitled", None),
+    )
+
+    assert report.ok is True
+    assert report.supported_version_range == "0.122.0"
+
+
+def test_run_preflight_allows_linux_arm64_for_current_host_preview_path() -> None:
+    report = run_preflight(
+        executable="codex",
+        supported_versions=("1.2.3",),
+        which=lambda _: "/usr/local/bin/codex",
+        runner=lambda command: type("Proc", (), {"returncode": 0, "stdout": "codex 1.2.3", "stderr": ""})(),
+        platform_resolver=lambda: "Linux",
+        machine_resolver=lambda: "arm64",
+        auth_detector=lambda _: ("authenticated", "entitled", None),
+    )
+
+    assert report.ok is True
+    assert report.machine_code is None
+    assert report.evidence.platform == "linux/arm64"
+
+
 def test_run_preflight_blocks_when_codex_is_missing() -> None:
     report = run_preflight(which=lambda _: None)
 
@@ -44,12 +74,12 @@ def test_run_preflight_blocks_when_platform_is_unsupported() -> None:
         supported_versions=("1.2.3",),
         which=lambda _: "/usr/local/bin/codex",
         platform_resolver=lambda: "Linux",
-        machine_resolver=lambda: "arm64",
+        machine_resolver=lambda: "ppc64le",
     )
 
     assert report.ok is False
     assert report.machine_code == PREFLIGHT_CODE_UNSUPPORTED_PLATFORM
-    assert report.evidence.platform == "linux/arm64"
+    assert report.evidence.platform == "linux/ppc64le"
 
 
 def test_run_preflight_blocks_when_version_is_not_allowlisted() -> None:
@@ -95,3 +125,20 @@ def test_run_preflight_blocks_when_entitlement_is_missing() -> None:
     assert report.ok is False
     assert report.machine_code == PREFLIGHT_CODE_NO_ENTITLEMENT
     assert report.reason == "unsupported plan"
+
+
+def test_detect_auth_states_accepts_login_status_chatgpt_output() -> None:
+    seen_commands: list[tuple[str, ...]] = []
+
+    def runner(command):
+        seen_commands.append(tuple(command))
+        if command[:3] == ["codex", "login", "status"]:
+            return type("Proc", (), {"returncode": 0, "stdout": "Logged in using ChatGPT", "stderr": ""})()
+        return type("Proc", (), {"returncode": 1, "stdout": "", "stderr": "unsupported"})()
+
+    auth_state, entitlement_state, reason = detect_auth_states(runner=runner)
+
+    assert auth_state == "authenticated"
+    assert entitlement_state == "entitled"
+    assert reason is None
+    assert seen_commands[0] == ("codex", "login", "status", "--json")

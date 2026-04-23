@@ -10,14 +10,13 @@ from codex_backend.contracts import GenerateRequest, PreflightReport, RuntimeEvi
 MANIFEST_PATH = Path(__file__).resolve().parents[2] / "manifest.json"
 
 
-def fake_generate_text_to_image(prompt: str, **_: object) -> dict[str, str]:
-    return {"saved_path": "/tmp/runtime-output.png", "provider": prompt}
-
-
 FakeCodexModule = SimpleNamespace(
     __name__="codex_app_server",
     __version__="0.9.0",
-    generate_text_to_image=fake_generate_text_to_image,
+    Codex=type("Codex", (), {}),
+    AppServerConfig=type("AppServerConfig", (), {}),
+    TextInput=type("TextInput", (), {}),
+    LocalImageInput=type("LocalImageInput", (), {}),
 )
 
 
@@ -28,6 +27,10 @@ def load_manifest() -> dict:
 def test_runtime_evidence_stays_outside_planned_manifest_identity(monkeypatch) -> None:  # noqa: ANN001
     original_manifest = load_manifest()
     monkeypatch.setattr("codex_backend.adapter._load_codex_app_server", lambda: FakeCodexModule)
+    monkeypatch.setattr(
+        "codex_backend.adapter._run_sdk_turn",
+        lambda module, mode, payload: {"items": [{"saved_path": "/tmp/runtime-output.png", "provider": payload["prompt"]}]},
+    )
 
     adapter = CodexAdapter()
     result = adapter.generate(

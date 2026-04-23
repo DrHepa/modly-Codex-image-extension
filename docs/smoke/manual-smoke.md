@@ -1,7 +1,7 @@
 # Manual Smoke: Local Auth Flow
 
 ## Purpose
-Optional, CI-excluded smoke steps for a developer machine that already has a local Codex runtime, a valid local login, and a reviewed `codex_app_server` source/install.
+Optional, CI-excluded smoke steps for a developer machine that already has a local Codex runtime, a valid local login, and the extension's reviewed pinned `codex_app_server` setup path available.
 
 ## Preconditions
 - Run these steps manually only; they are **not** part of CI.
@@ -12,7 +12,7 @@ Optional, CI-excluded smoke steps for a developer machine that already has a loc
 
 ## Smoke Steps
 1. Create or activate a local Python environment for this repo.
-2. Install test tooling and the approved `codex_app_server` prerequisite using the team-reviewed source strategy.
+2. Run extension setup so the extension venv installs the pinned `codex_app_server` source snapshot, or override it explicitly only when reviewing a replacement source.
 3. Prepare a writable workspace-relative output target such as `outputs/smoke/result.png`.
 4. Run a prompt-only request through `generator.py`, passing a non-empty prompt and the workspace-relative output target.
 5. Verify the command returns one absolute image path under the workspace and that the file exists.
