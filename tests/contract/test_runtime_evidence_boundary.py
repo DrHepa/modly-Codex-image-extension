@@ -48,6 +48,6 @@ def test_runtime_evidence_stays_outside_planned_manifest_identity(monkeypatch) -
     }
     assert report.evidence.runtime_name == "codex"
     assert load_manifest() == original_manifest
-    assert original_manifest["models"][0]["id"] == "codex-local-image-model"
+    assert [node["id"] for node in original_manifest["nodes"]] == ["text-to-image", "image-to-image"]
     assert "runtime_evidence" not in original_manifest
-    assert "runtime_evidence" not in original_manifest["models"][0]
+    assert all("runtime_evidence" not in node for node in original_manifest["nodes"])

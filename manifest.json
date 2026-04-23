@@ -1,9 +1,18 @@
 {
   "id": "modly-codex-image-extension",
   "name": "Codex Local Image Model",
+  "description": "Experimental local Codex image model extension for text-to-image and image-to-image workflows.",
   "version": "0.1.0",
   "type": "model",
+  "author": "DrHepa",
+  "generator_class": "CodexImageGenerator",
   "bucket": "model-managed-setup",
+  "tags": [
+    "text-to-image",
+    "image-to-image",
+    "codex",
+    "local"
+  ],
   "metadata": {
     "resolution": "planned",
     "implementation_profile": "python-local-bridge",
@@ -13,12 +22,83 @@
     "headless_eligible": "conditional",
     "linux_arm64_risk": "high"
   },
-  "models": [
+  "nodes": [
     {
-      "id": "codex-local-image-model",
-      "name": "Codex Local Image Model",
-      "modality": "image",
+      "id": "text-to-image",
+      "name": "Text to Image",
+      "input": "text",
+      "output": "image",
+      "params_schema": [
+        {
+          "id": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "default": "",
+          "tooltip": "Prompt text for Codex local image generation."
+        },
+        {
+          "id": "size",
+          "label": "Size",
+          "type": "string",
+          "default": "1024x1024",
+          "tooltip": "Requested output size forwarded to the Codex backend when supported."
+        },
+        {
+          "id": "quality",
+          "label": "Quality",
+          "type": "string",
+          "default": "high",
+          "tooltip": "Requested quality hint forwarded to the Codex backend when supported."
+        },
+        {
+          "id": "background",
+          "label": "Background",
+          "type": "string",
+          "default": "auto",
+          "tooltip": "Optional background hint such as auto or transparent when supported by runtime."
+        }
+      ],
+      "identity_resolution": "planned"
+    },
+    {
+      "id": "image-to-image",
+      "name": "Image to Image",
+      "input": "image",
+      "output": "image",
+      "params_schema": [
+        {
+          "id": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "default": "",
+          "tooltip": "Prompt text describing the desired edit target."
+        },
+        {
+          "id": "strength",
+          "label": "Strength",
+          "type": "float",
+          "default": 0.75,
+          "min": 0,
+          "max": 1,
+          "tooltip": "How strongly the source image should be transformed."
+        },
+        {
+          "id": "size",
+          "label": "Size",
+          "type": "string",
+          "default": "1024x1024",
+          "tooltip": "Requested output size forwarded to the Codex backend when supported."
+        },
+        {
+          "id": "background",
+          "label": "Background",
+          "type": "string",
+          "default": "auto",
+          "tooltip": "Optional background hint such as auto or transparent when supported by runtime."
+        }
+      ],
       "identity_resolution": "planned"
     }
-  ]
+  ],
+  "source": "https://github.com/DrHepa/modly-Codex-image-extension"
 }

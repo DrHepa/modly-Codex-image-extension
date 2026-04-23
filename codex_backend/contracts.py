@@ -4,7 +4,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
-PLANNED_MODEL_ID = "codex-local-image-model"
+EXTENSION_ID = "modly-codex-image-extension"
+GENERATOR_CLASS = "CodexImageGenerator"
+TEXT_TO_IMAGE_NODE_ID = "text-to-image"
+IMAGE_TO_IMAGE_NODE_ID = "image-to-image"
+PLANNED_NODE_IDS = (TEXT_TO_IMAGE_NODE_ID, IMAGE_TO_IMAGE_NODE_ID)
 PLANNED_BUCKET = "model-managed-setup"
 IMPLEMENTATION_PROFILE = "python-local-bridge"
 SETUP_CONTRACT = "user-managed Codex install+login, extension-managed preflight"
@@ -12,6 +16,10 @@ SUPPORT_STATE = "experimental"
 SURFACE_OWNER = "FastAPI model extension"
 HEADLESS_ELIGIBLE = "conditional"
 LINUX_ARM64_RISK = "high"
+EXTENSION_AUTHOR = "DrHepa"
+EXTENSION_DESCRIPTION = (
+    "Experimental local Codex image model extension for text-to-image and image-to-image workflows."
+)
 
 RUNTIME_EVIDENCE_SOURCE = "local-codex-command"
 

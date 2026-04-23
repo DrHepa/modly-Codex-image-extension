@@ -85,7 +85,7 @@ Human-readable messaging for these codes lives in `codex_backend/errors.py`.
 
 ## Repo orientation
 
-- `manifest.json` — planned identity and required metadata.
+- `manifest.json` — planned identity, UI metadata, and `nodes` definitions for Modly discovery.
 - `generator.py` — Modly-facing orchestration entrypoint.
 - `codex_backend/` — Codex adapter, preflight, persistence, contracts, and errors.
 - `docs/architecture.md` — module boundaries and recommended implementation order.

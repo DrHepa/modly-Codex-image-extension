@@ -7,17 +7,21 @@ import json
 import os
 import sys
 import tempfile
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from codex_backend.adapter import CodexAdapter
 from codex_backend.contracts import (
+    GENERATOR_CLASS,
+    IMAGE_TO_IMAGE_MODE,
     REQUEST_CODE_INVALID_INPUT_IMAGE,
     REQUEST_CODE_INVALID_OUTPUT_TARGET,
     REQUEST_CODE_INVALID_PROMPT,
     REQUEST_CODE_MISSING_INPUT_IMAGE,
     RUNTIME_CODE_NO_OUTPUT,
+    TEXT_TO_IMAGE_MODE,
     CodexExtensionError,
     GenerateRequest,
 )
@@ -211,6 +215,86 @@ def generate(
         request.output_target,
     )
     return str(resolved_output.final_abs_path)
+
+
+class CodexImageGenerator:
+    MODEL_ID = "modly-codex-image-extension"
+    DISPLAY_NAME = "Codex Local Image Model"
+    VRAM_GB = 0
+
+    def __init__(self, model_dir: Path, outputs_dir: Path) -> None:
+        self.model_dir = Path(model_dir)
+        self.outputs_dir = Path(outputs_dir)
+        self._loaded = False
+        self.hf_repo: str = ""
+        self.hf_skip_prefixes: list[str] = []
+        self.download_check: str = ""
+        self._params_schema: list[dict[str, Any]] = []
+
+    @classmethod
+    def params_schema(cls) -> list[dict[str, Any]]:
+        # Returning an empty schema here prevents runner.py from overwriting the
+        # node-specific params schema already injected by GeneratorRegistry.
+        return []
+
+    def load(self) -> None:
+        self.outputs_dir.mkdir(parents=True, exist_ok=True)
+        self._loaded = True
+
+    def unload(self) -> None:
+        self._loaded = False
+
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    def _resolve_prompt(self, params: Mapping[str, Any]) -> str:
+        return _ensure_prompt(_pick_first(params, "prompt", "text", "input"))
+
+    def _resolve_mode(self, image_bytes: bytes, params: Mapping[str, Any]) -> str:
+        requested_mode = _pick_first(params, "mode", "node_id", "nodeId")
+        if requested_mode == IMAGE_TO_IMAGE_MODE:
+            return IMAGE_TO_IMAGE_MODE
+        if requested_mode == TEXT_TO_IMAGE_MODE:
+            return TEXT_TO_IMAGE_MODE
+        return IMAGE_TO_IMAGE_MODE if image_bytes else TEXT_TO_IMAGE_MODE
+
+    def _resolve_output_target(self, params: Mapping[str, Any], mode: str) -> str:
+        explicit = _pick_first(params, "output_target", "outputTarget", "output_path", "outputPath", "output")
+        if isinstance(explicit, str) and explicit.strip():
+            return explicit.strip()
+        return f"codex/{mode}-{uuid.uuid4().hex}.png"
+
+    def _build_payload(self, image_bytes: bytes, params: Mapping[str, Any]) -> dict[str, Any]:
+        mode = self._resolve_mode(image_bytes, params)
+        payload: dict[str, Any] = {
+            "prompt": self._resolve_prompt(params),
+            "mode": mode,
+            "params": dict(params),
+            "output_target": self._resolve_output_target(params, mode),
+        }
+        if mode == IMAGE_TO_IMAGE_MODE:
+            payload["input_image"] = {
+                "base64": base64.b64encode(image_bytes).decode("ascii"),
+                "media_type": "image/png",
+            }
+        return payload
+
+    def generate(
+        self,
+        image_bytes: bytes,
+        params: dict[str, Any],
+        progress_cb=None,
+        cancel_event=None,
+    ) -> Path:
+        del progress_cb, cancel_event
+        output_path = generate(
+            self._build_payload(image_bytes, params),
+            workspace_root=self.outputs_dir,
+        )
+        return Path(output_path)
+
+
+assert CodexImageGenerator.__name__ == GENERATOR_CLASS
 
 
 def main() -> int:
