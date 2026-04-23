@@ -1,0 +1,24 @@
+{
+  "id": "modly-codex-image-extension",
+  "name": "Codex Local Image Model",
+  "version": "0.1.0",
+  "type": "model",
+  "bucket": "model-managed-setup",
+  "metadata": {
+    "resolution": "planned",
+    "implementation_profile": "python-local-bridge",
+    "setup_contract": "user-managed Codex install+login, extension-managed preflight",
+    "support_state": "experimental",
+    "surface_owner": "FastAPI model extension",
+    "headless_eligible": "conditional",
+    "linux_arm64_risk": "high"
+  },
+  "models": [
+    {
+      "id": "codex-local-image-model",
+      "name": "Codex Local Image Model",
+      "modality": "image",
+      "identity_resolution": "planned"
+    }
+  ]
+}
