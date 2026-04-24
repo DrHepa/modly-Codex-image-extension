@@ -284,14 +284,6 @@ def _readiness_diagnostics(report: Any, machine_code: str, checked_at: str) -> d
 
 def _readiness_details(report: Any, machine_code: str, label: str, checked_at: str) -> dict[str, Any]:
     diagnostics = _readiness_diagnostics(report, machine_code, checked_at)
-    guidance_by_code = {
-        PREFLIGHT_CODE_CODEX_MISSING: "Install or expose the Codex CLI on PATH using official Codex setup guidance, then refresh readiness. Modly does not run package-manager commands.",
-        PREFLIGHT_CODE_NOT_AUTHENTICATED: "Start Codex manually and complete authentication outside Modly; Modly never captures tokens or authentication logs.",
-        PREFLIGHT_CODE_NO_ENTITLEMENT: "Check plan, workspace, or account access for Codex. This is not an extension repair and Modly does not capture credentials.",
-        PREFLIGHT_CODE_UNSUPPORTED_VERSION: "Review the detected Codex version and supported versions first. Compatibility may require changing the local Codex runtime or updating extension compatibility after review; updating is not assumed to be the root cause.",
-        PREFLIGHT_CODE_UNSUPPORTED_PLATFORM: "This platform is not enabled for the V1 Codex extension. No setup, login, update, or repair action applies.",
-        "ready": "Codex runtime readiness is satisfied. Readiness actions only show details or refresh state.",
-    }
     summary_by_code = {
         PREFLIGHT_CODE_CODEX_MISSING: "Codex CLI was not detected in the current runtime environment.",
         PREFLIGHT_CODE_NOT_AUTHENTICATED: "Codex authentication needs user-managed login outside Modly.",
@@ -303,24 +295,13 @@ def _readiness_details(report: Any, machine_code: str, label: str, checked_at: s
     return {
         "title": label,
         "summary": summary_by_code.get(machine_code, report.reason or "Codex readiness needs attention."),
-        "evidence": dict(diagnostics),
         "diagnostics": diagnostics,
-        "guidance": guidance_by_code.get(machine_code, report.reason or "Refresh readiness after reviewing local runtime state."),
     }
 
 
 def _readiness_actions(machine_code: str) -> list[dict[str, Any]]:
     if machine_code == PREFLIGHT_CODE_CODEX_MISSING:
         return [
-            {
-                "id": "codex.setup.guidance",
-                "kind": "show_guidance",
-                "label": "Setup Codex",
-                "safety": "manual",
-                "guidance": "Install or expose the Codex CLI on PATH using official Codex setup guidance, then refresh readiness. Modly does not run package-manager commands.",
-                "docs_url": CODEX_SETUP_DOCS_URL,
-                "refresh_after": "never",
-            },
             {
                 "id": "codex.setup.docs",
                 "kind": "open_external_url",
@@ -334,15 +315,6 @@ def _readiness_actions(machine_code: str) -> list[dict[str, Any]]:
     if machine_code == PREFLIGHT_CODE_NOT_AUTHENTICATED:
         return [
             {
-                "id": "codex.login.guidance",
-                "kind": "show_guidance",
-                "label": "Login",
-                "safety": "manual",
-                "guidance": "Start Codex manually and complete authentication outside Modly; Modly never captures tokens or authentication logs.",
-                "docs_url": CODEX_AUTH_DOCS_URL,
-                "refresh_after": "never",
-            },
-            {
                 "id": "codex.login.docs",
                 "kind": "open_external_url",
                 "label": "Open Codex auth docs",
@@ -355,13 +327,6 @@ def _readiness_actions(machine_code: str) -> list[dict[str, Any]]:
     if machine_code == PREFLIGHT_CODE_NO_ENTITLEMENT:
         return [
             {
-                "id": "codex.access.details",
-                "kind": "show_details",
-                "label": "Login / Check access",
-                "safety": "manual",
-                "refresh_after": "never",
-            },
-            {
                 "id": "codex.access.docs",
                 "kind": "open_external_url",
                 "label": "Open Codex access docs",
@@ -372,24 +337,7 @@ def _readiness_actions(machine_code: str) -> list[dict[str, Any]]:
             dict(GENERIC_REFRESH_ACTION),
         ]
     if machine_code == PREFLIGHT_CODE_UNSUPPORTED_VERSION:
-        guidance = "Review diagnostics first: compatibility may require changing the local Codex runtime or updating extension compatibility after review. Modly does not auto-update Codex."
         return [
-            {
-                "id": "codex.update.details",
-                "kind": "show_details",
-                "label": "Review Codex version details",
-                "safety": "manual",
-                "refresh_after": "never",
-            },
-            {
-                "id": "codex.update.guidance",
-                "kind": "show_guidance",
-                "label": "Update Codex",
-                "safety": "manual",
-                "guidance": guidance,
-                "docs_url": CODEX_UPDATE_DOCS_URL,
-                "refresh_after": "never",
-            },
             {
                 "id": "codex.update.docs",
                 "kind": "open_external_url",
@@ -401,28 +349,9 @@ def _readiness_actions(machine_code: str) -> list[dict[str, Any]]:
             dict(GENERIC_REFRESH_ACTION),
         ]
     if machine_code == PREFLIGHT_CODE_UNSUPPORTED_PLATFORM:
-        return [
-            {
-                "id": "codex.unsupported.details",
-                "kind": "show_details",
-                "label": "Unsupported",
-                "safety": "manual",
-                "disabled": True,
-                "reason": "No setup, login, update, or repair action applies for this unsupported platform.",
-                "refresh_after": "never",
-            }
-        ]
+        return []
     if machine_code == "ready":
-        return [
-            {
-                "id": "codex.ready.details",
-                "kind": "show_details",
-                "label": "Ready details",
-                "safety": "non_destructive",
-                "refresh_after": "never",
-            },
-            dict(GENERIC_REFRESH_ACTION),
-        ]
+        return [dict(GENERIC_REFRESH_ACTION)]
     return [dict(GENERIC_REFRESH_ACTION)]
 
 

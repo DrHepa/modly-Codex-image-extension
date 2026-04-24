@@ -32,7 +32,7 @@ LOCKED_DIAGNOSTIC_KEYS = {
     "last_checked_at",
 }
 
-GENERIC_ACTION_KINDS = {"show_guidance", "show_details", "open_external_url", "refresh_readiness", "repair_extension"}
+GENERIC_ACTION_KINDS = {"open_external_url", "refresh_readiness"}
 
 
 def readiness_from(report: PreflightReport, monkeypatch) -> dict[str, object]:  # noqa: ANN001
@@ -44,7 +44,7 @@ def readiness_from(report: PreflightReport, monkeypatch) -> dict[str, object]:  
 def assert_generic_actions(status: dict[str, object]) -> list[dict[str, object]]:
     actions = status["actions"]
     assert isinstance(actions, list)
-    assert 1 <= len(actions) <= 5
+    assert len(actions) <= 5
     for action in actions:
         assert action["kind"] in GENERIC_ACTION_KINDS
         assert action["safety"] in {"manual", "non_destructive", "confirm"}
@@ -57,6 +57,8 @@ def assert_locked_sanitized_diagnostics(status: dict[str, object]) -> dict[str, 
     assert isinstance(details, dict)
     diagnostics = details["diagnostics"]
     assert isinstance(diagnostics, dict)
+    assert "evidence" not in details
+    assert "guidance" not in details
     assert set(diagnostics) <= LOCKED_DIAGNOSTIC_KEYS
     serialized = repr(status)
     assert "/home/example" not in serialized
@@ -168,16 +170,15 @@ def test_readiness_status_returns_setup_guidance_action_for_missing_codex(monkey
     actions = assert_generic_actions(status)
     assert status["label_hint"] == "Setup Codex"
     assert actions[0] == {
-        "id": "codex.setup.guidance",
-        "kind": "show_guidance",
-        "label": "Setup Codex",
+        "id": "codex.setup.docs",
+        "kind": "open_external_url",
+        "label": "Open Codex setup docs",
         "safety": "manual",
-        "guidance": "Install or expose the Codex CLI on PATH using official Codex setup guidance, then refresh readiness. Modly does not run package-manager commands.",
         "docs_url": "https://developers.openai.com/codex/cli",
         "refresh_after": "never",
     }
     assert actions[-1]["kind"] == "refresh_readiness"
-    assert "Install or expose the Codex CLI" in status["details"]["guidance"]
+    assert "Codex CLI was not detected" in status["details"]["summary"]
 
 
 def test_readiness_status_returns_login_guidance_for_missing_auth(monkeypatch) -> None:  # noqa: ANN001
@@ -200,10 +201,9 @@ def test_readiness_status_returns_login_guidance_for_missing_auth(monkeypatch) -
 
     actions = assert_generic_actions(status)
     assert status["label_hint"] == "Login"
-    assert actions[0]["id"] == "codex.login.guidance"
-    assert actions[0]["kind"] == "show_guidance"
+    assert actions[0]["id"] == "codex.login.docs"
+    assert actions[0]["kind"] == "open_external_url"
     assert actions[0]["docs_url"] == "https://developers.openai.com/codex/auth"
-    assert "complete authentication outside Modly" in actions[0]["guidance"]
     assert status["details"]["diagnostics"]["auth_state"] == "unauthenticated"
 
 
@@ -227,10 +227,9 @@ def test_readiness_status_returns_access_details_for_missing_entitlement(monkeyp
 
     actions = assert_generic_actions(status)
     assert status["label_hint"] == "Login"
-    assert actions[0]["id"] == "codex.access.details"
-    assert actions[0]["kind"] == "show_details"
-    assert actions[1]["docs_url"] == "https://developers.openai.com/codex/pricing"
-    assert "Check plan, workspace, or account access" in status["details"]["guidance"]
+    assert actions[0]["id"] == "codex.access.docs"
+    assert actions[0]["kind"] == "open_external_url"
+    assert actions[0]["docs_url"] == "https://developers.openai.com/codex/pricing"
     assert status["details"]["diagnostics"]["entitlement_state"] == "free"
 
 
@@ -257,10 +256,9 @@ def test_readiness_status_returns_update_details_without_assuming_root_cause(mon
     actions = assert_generic_actions(status)
     diagnostics = assert_locked_sanitized_diagnostics(status)
     assert status["label_hint"] == "Update Codex"
-    assert actions[0]["id"] == "codex.update.details"
-    assert actions[0]["kind"] == "show_details"
-    assert actions[1]["label"] == "Update Codex"
-    assert "may require changing the local Codex runtime or updating extension compatibility after review" in actions[1]["guidance"]
+    assert actions[0]["id"] == "codex.update.docs"
+    assert actions[0]["kind"] == "open_external_url"
+    assert actions[0]["label"] == "Open Codex changelog"
     assert diagnostics["runtime_version"] == "9.9.9"
     assert diagnostics["supported_versions"] == "0.122.0"
     assert diagnostics["runtime_version_supported"] == "false"
@@ -280,10 +278,7 @@ def test_readiness_status_returns_disabled_unsupported_platform_details(monkeypa
 
     actions = assert_generic_actions(status)
     assert status["label_hint"] == "Unsupported"
-    assert actions[0]["id"] == "codex.unsupported.details"
-    assert actions[0]["kind"] == "show_details"
-    assert actions[0]["disabled"] is True
-    assert "No setup, login, update, or repair action applies" in actions[0]["reason"]
+    assert actions == []
     assert status["details"]["diagnostics"]["platform_supported"] == "false"
 
 
@@ -305,9 +300,7 @@ def test_readiness_status_returns_ready_details_without_mutation(monkeypatch) ->
 
     actions = assert_generic_actions(status)
     assert status["label_hint"] == "Ready"
-    assert actions[0]["id"] == "codex.ready.details"
-    assert actions[0]["kind"] == "show_details"
-    assert actions[1]["kind"] == "refresh_readiness"
+    assert actions[0]["kind"] == "refresh_readiness"
     assert "never starts generation" in status["details"]["summary"]
     assert status["details"]["diagnostics"]["diagnostic_status"] == "ready"
 
