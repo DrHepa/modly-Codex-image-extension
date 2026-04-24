@@ -36,6 +36,12 @@ from codex_backend.persistence import persist_result_image, validate_output_targ
 from codex_backend.preflight import run_preflight
 
 
+CODEX_SETUP_DOCS_URL = "https://developers.openai.com/codex/cli"
+CODEX_AUTH_DOCS_URL = "https://developers.openai.com/codex/auth"
+CODEX_ACCESS_DOCS_URL = "https://developers.openai.com/codex/pricing"
+CODEX_UPDATE_DOCS_URL = "https://developers.openai.com/codex/changelog"
+
+
 def _resolve_workspace_root(explicit: str | Path | None = None) -> Path:
     if explicit is not None:
         return Path(explicit).expanduser().resolve()
@@ -187,6 +193,21 @@ SAFE_READINESS_EVIDENCE_FIELDS = (
     "platform",
 )
 
+SUPPORTED_PLATFORM_KEYS = {
+    "darwin/arm64",
+    "darwin/x86_64",
+    "linux/arm64",
+    "linux/x86_64",
+}
+
+GENERIC_REFRESH_ACTION = {
+    "id": "codex.refresh_readiness",
+    "kind": "refresh_readiness",
+    "label": "Refresh",
+    "safety": "non_destructive",
+    "refresh_after": "always",
+}
+
 
 def _readiness_label(machine_code: str, ok: bool) -> str:
     if ok:
@@ -201,6 +222,208 @@ def _safe_readiness_evidence(evidence: Any) -> dict[str, str]:
         if value is not None:
             safe[field_name] = str(value)
     return safe
+
+
+def _supported_version_values(supported_version_range: str | None) -> tuple[str, ...]:
+    if not supported_version_range:
+        return ()
+    return tuple(value.strip() for value in supported_version_range.split(",") if value.strip())
+
+
+def _runtime_version_supported(runtime_version: str | None, supported_version_range: str | None) -> str:
+    supported_versions = _supported_version_values(supported_version_range)
+    if not runtime_version or not supported_versions:
+        return "unknown"
+    return "true" if runtime_version in supported_versions else "false"
+
+
+def _platform_supported(platform_key: str | None) -> str:
+    if not platform_key:
+        return "unknown"
+    return "true" if platform_key in SUPPORTED_PLATFORM_KEYS else "false"
+
+
+def _readiness_diagnostics(report: Any, machine_code: str, checked_at: str) -> dict[str, str]:
+    evidence = report.evidence
+    runtime_version = getattr(evidence, "runtime_version", None)
+    platform_key = getattr(evidence, "platform", None)
+    diagnostics: dict[str, str] = {
+        "runtime_source": str(getattr(evidence, "source", "local-codex-command")),
+        "runtime_version_supported": _runtime_version_supported(runtime_version, report.supported_version_range),
+        "platform_supported": _platform_supported(platform_key),
+        "extension_setup_state": "ready",
+        "extension_import_state": "ready",
+        "codex_app_server_state": "not_checked",
+        "readiness_source": "codex_extension_preflight",
+        "diagnostic_status": "ready" if report.ok else "blocked",
+        "last_checked_at": checked_at,
+    }
+
+    optional_values = {
+        "runtime_name": getattr(evidence, "runtime_name", None),
+        "runtime_version": runtime_version,
+        "supported_versions": report.supported_version_range,
+        "platform_key": platform_key,
+        "auth_state": getattr(evidence, "auth_state", None),
+        "entitlement_state": getattr(evidence, "entitlement_state", None),
+    }
+    for key, value in optional_values.items():
+        if value is not None:
+            diagnostics[key] = str(value)
+
+    if machine_code == PREFLIGHT_CODE_UNSUPPORTED_PLATFORM:
+        diagnostics["platform_supported"] = "false"
+    if machine_code == PREFLIGHT_CODE_UNSUPPORTED_VERSION:
+        diagnostics["runtime_version_supported"] = "false"
+    if report.ok:
+        diagnostics["runtime_version_supported"] = "true"
+        diagnostics["platform_supported"] = "true"
+
+    return diagnostics
+
+
+def _readiness_details(report: Any, machine_code: str, label: str, checked_at: str) -> dict[str, Any]:
+    diagnostics = _readiness_diagnostics(report, machine_code, checked_at)
+    guidance_by_code = {
+        PREFLIGHT_CODE_CODEX_MISSING: "Install or expose the Codex CLI on PATH using official Codex setup guidance, then refresh readiness. Modly does not run package-manager commands.",
+        PREFLIGHT_CODE_NOT_AUTHENTICATED: "Start Codex manually and complete authentication outside Modly; Modly never captures tokens or authentication logs.",
+        PREFLIGHT_CODE_NO_ENTITLEMENT: "Check plan, workspace, or account access for Codex. This is not an extension repair and Modly does not capture credentials.",
+        PREFLIGHT_CODE_UNSUPPORTED_VERSION: "Review the detected Codex version and supported versions first. Compatibility may require changing the local Codex runtime or updating extension compatibility after review; updating is not assumed to be the root cause.",
+        PREFLIGHT_CODE_UNSUPPORTED_PLATFORM: "This platform is not enabled for the V1 Codex extension. No setup, login, update, or repair action applies.",
+        "ready": "Codex runtime readiness is satisfied. Readiness actions only show details or refresh state.",
+    }
+    summary_by_code = {
+        PREFLIGHT_CODE_CODEX_MISSING: "Codex CLI was not detected in the current runtime environment.",
+        PREFLIGHT_CODE_NOT_AUTHENTICATED: "Codex authentication needs user-managed login outside Modly.",
+        PREFLIGHT_CODE_NO_ENTITLEMENT: "Codex authentication was detected, but access or entitlement could not be verified.",
+        PREFLIGHT_CODE_UNSUPPORTED_VERSION: "The detected Codex runtime version is outside the extension's validated allowlist.",
+        PREFLIGHT_CODE_UNSUPPORTED_PLATFORM: "The current OS/architecture is unsupported by this V1 extension.",
+        "ready": "Codex is ready; this status never starts generation or mutates runtime state.",
+    }
+    return {
+        "title": label,
+        "summary": summary_by_code.get(machine_code, report.reason or "Codex readiness needs attention."),
+        "evidence": dict(diagnostics),
+        "diagnostics": diagnostics,
+        "guidance": guidance_by_code.get(machine_code, report.reason or "Refresh readiness after reviewing local runtime state."),
+    }
+
+
+def _readiness_actions(machine_code: str) -> list[dict[str, Any]]:
+    if machine_code == PREFLIGHT_CODE_CODEX_MISSING:
+        return [
+            {
+                "id": "codex.setup.guidance",
+                "kind": "show_guidance",
+                "label": "Setup Codex",
+                "safety": "manual",
+                "guidance": "Install or expose the Codex CLI on PATH using official Codex setup guidance, then refresh readiness. Modly does not run package-manager commands.",
+                "docs_url": CODEX_SETUP_DOCS_URL,
+                "refresh_after": "never",
+            },
+            {
+                "id": "codex.setup.docs",
+                "kind": "open_external_url",
+                "label": "Open Codex setup docs",
+                "safety": "manual",
+                "docs_url": CODEX_SETUP_DOCS_URL,
+                "refresh_after": "never",
+            },
+            dict(GENERIC_REFRESH_ACTION),
+        ]
+    if machine_code == PREFLIGHT_CODE_NOT_AUTHENTICATED:
+        return [
+            {
+                "id": "codex.login.guidance",
+                "kind": "show_guidance",
+                "label": "Login",
+                "safety": "manual",
+                "guidance": "Start Codex manually and complete authentication outside Modly; Modly never captures tokens or authentication logs.",
+                "docs_url": CODEX_AUTH_DOCS_URL,
+                "refresh_after": "never",
+            },
+            {
+                "id": "codex.login.docs",
+                "kind": "open_external_url",
+                "label": "Open Codex auth docs",
+                "safety": "manual",
+                "docs_url": CODEX_AUTH_DOCS_URL,
+                "refresh_after": "never",
+            },
+            dict(GENERIC_REFRESH_ACTION),
+        ]
+    if machine_code == PREFLIGHT_CODE_NO_ENTITLEMENT:
+        return [
+            {
+                "id": "codex.access.details",
+                "kind": "show_details",
+                "label": "Login / Check access",
+                "safety": "manual",
+                "refresh_after": "never",
+            },
+            {
+                "id": "codex.access.docs",
+                "kind": "open_external_url",
+                "label": "Open Codex access docs",
+                "safety": "manual",
+                "docs_url": CODEX_ACCESS_DOCS_URL,
+                "refresh_after": "never",
+            },
+            dict(GENERIC_REFRESH_ACTION),
+        ]
+    if machine_code == PREFLIGHT_CODE_UNSUPPORTED_VERSION:
+        guidance = "Review diagnostics first: compatibility may require changing the local Codex runtime or updating extension compatibility after review. Modly does not auto-update Codex."
+        return [
+            {
+                "id": "codex.update.details",
+                "kind": "show_details",
+                "label": "Review Codex version details",
+                "safety": "manual",
+                "refresh_after": "never",
+            },
+            {
+                "id": "codex.update.guidance",
+                "kind": "show_guidance",
+                "label": "Update Codex",
+                "safety": "manual",
+                "guidance": guidance,
+                "docs_url": CODEX_UPDATE_DOCS_URL,
+                "refresh_after": "never",
+            },
+            {
+                "id": "codex.update.docs",
+                "kind": "open_external_url",
+                "label": "Open Codex changelog",
+                "safety": "manual",
+                "docs_url": CODEX_UPDATE_DOCS_URL,
+                "refresh_after": "never",
+            },
+            dict(GENERIC_REFRESH_ACTION),
+        ]
+    if machine_code == PREFLIGHT_CODE_UNSUPPORTED_PLATFORM:
+        return [
+            {
+                "id": "codex.unsupported.details",
+                "kind": "show_details",
+                "label": "Unsupported",
+                "safety": "manual",
+                "disabled": True,
+                "reason": "No setup, login, update, or repair action applies for this unsupported platform.",
+                "refresh_after": "never",
+            }
+        ]
+    if machine_code == "ready":
+        return [
+            {
+                "id": "codex.ready.details",
+                "kind": "show_details",
+                "label": "Ready details",
+                "safety": "non_destructive",
+                "refresh_after": "never",
+            },
+            dict(GENERIC_REFRESH_ACTION),
+        ]
+    return [dict(GENERIC_REFRESH_ACTION)]
 
 
 def parse_generate_request(payload: Mapping[str, Any]) -> GenerateRequest:
@@ -290,11 +513,13 @@ class CodexImageGenerator:
     def readiness_status(self) -> dict[str, Any]:
         report = run_preflight()
         machine_code = "ready" if report.ok else (report.machine_code or "preflight/unknown")
+        checked_at = datetime.now(UTC).isoformat()
+        label = _readiness_label(machine_code, report.ok)
         status: dict[str, Any] = {
             "ok": report.ok,
             "machine_code": machine_code,
-            "label_hint": _readiness_label(machine_code, report.ok),
-            "checked_at": datetime.now(UTC).isoformat(),
+            "label_hint": label,
+            "checked_at": checked_at,
         }
 
         if report.reason:
@@ -303,6 +528,9 @@ class CodexImageGenerator:
         evidence = _safe_readiness_evidence(report.evidence)
         if evidence:
             status["evidence"] = evidence
+
+        status["details"] = _readiness_details(report, machine_code, label, checked_at)
+        status["actions"] = _readiness_actions(machine_code)
 
         return status
 
