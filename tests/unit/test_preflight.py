@@ -43,7 +43,23 @@ def test_run_preflight_uses_default_allowlist_when_env_is_not_set() -> None:
     )
 
     assert report.ok is True
-    assert report.supported_version_range == "0.122.0"
+    assert report.supported_version_range == "0.122.0, 0.124.0"
+
+
+def test_run_preflight_accepts_codex_0_124_from_default_allowlist() -> None:
+    report = run_preflight(
+        executable="codex",
+        which=lambda _: "/usr/local/bin/codex",
+        runner=lambda command: type("Proc", (), {"returncode": 0, "stdout": "codex 0.124.0", "stderr": ""})(),
+        platform_resolver=lambda: "Linux",
+        machine_resolver=lambda: "arm64",
+        auth_detector=lambda _: ("authenticated", "entitled", None),
+    )
+
+    assert report.ok is True
+    assert report.machine_code is None
+    assert report.evidence.runtime_version == "0.124.0"
+    assert report.supported_version_range == "0.122.0, 0.124.0"
 
 
 def test_run_preflight_allows_linux_arm64_for_current_host_preview_path() -> None:

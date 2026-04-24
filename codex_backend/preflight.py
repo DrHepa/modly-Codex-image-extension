@@ -28,7 +28,7 @@ SUPPORTED_PLATFORM_MATRIX = {
 AUTHENTICATED_STATES = {"active", "authenticated", "logged_in", "ok"}
 ENTITLED_STATES = {"active", "entitled", "ok", "plus", "pro", "team"}
 VERSION_PATTERN = re.compile(r"(\d+(?:\.\d+){1,3})")
-DEFAULT_SUPPORTED_VERSIONS = ("0.122.0",)
+DEFAULT_SUPPORTED_VERSIONS = ("0.122.0", "0.124.0")
 
 
 def _run_command(command: Sequence[str], *, timeout: int = 10) -> subprocess.CompletedProcess[str]:
