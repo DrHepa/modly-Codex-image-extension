@@ -9,6 +9,7 @@ import sys
 import tempfile
 import uuid
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,11 @@ from codex_backend.adapter import CodexAdapter
 from codex_backend.contracts import (
     GENERATOR_CLASS,
     IMAGE_TO_IMAGE_MODE,
+    PREFLIGHT_CODE_CODEX_MISSING,
+    PREFLIGHT_CODE_NOT_AUTHENTICATED,
+    PREFLIGHT_CODE_NO_ENTITLEMENT,
+    PREFLIGHT_CODE_UNSUPPORTED_PLATFORM,
+    PREFLIGHT_CODE_UNSUPPORTED_VERSION,
     REQUEST_CODE_INVALID_INPUT_IMAGE,
     REQUEST_CODE_INVALID_OUTPUT_TARGET,
     REQUEST_CODE_INVALID_PROMPT,
@@ -163,6 +169,40 @@ def _ensure_saved_path(result: Any) -> None:
     )
 
 
+READINESS_LABELS = {
+    "ready": "Ready",
+    PREFLIGHT_CODE_CODEX_MISSING: "Setup Codex",
+    PREFLIGHT_CODE_NOT_AUTHENTICATED: "Login",
+    PREFLIGHT_CODE_NO_ENTITLEMENT: "Login",
+    PREFLIGHT_CODE_UNSUPPORTED_VERSION: "Update Codex",
+    PREFLIGHT_CODE_UNSUPPORTED_PLATFORM: "Unsupported",
+}
+
+SAFE_READINESS_EVIDENCE_FIELDS = (
+    "source",
+    "runtime_name",
+    "runtime_version",
+    "auth_state",
+    "entitlement_state",
+    "platform",
+)
+
+
+def _readiness_label(machine_code: str, ok: bool) -> str:
+    if ok:
+        return "Ready"
+    return READINESS_LABELS.get(machine_code, "Checking failed")
+
+
+def _safe_readiness_evidence(evidence: Any) -> dict[str, str]:
+    safe: dict[str, str] = {}
+    for field_name in SAFE_READINESS_EVIDENCE_FIELDS:
+        value = getattr(evidence, field_name, None)
+        if value is not None:
+            safe[field_name] = str(value)
+    return safe
+
+
 def parse_generate_request(payload: Mapping[str, Any]) -> GenerateRequest:
     params = payload.get("params")
     normalized_params = params if isinstance(params, Mapping) else {}
@@ -246,6 +286,25 @@ class CodexImageGenerator:
 
     def is_loaded(self) -> bool:
         return self._loaded
+
+    def readiness_status(self) -> dict[str, Any]:
+        report = run_preflight()
+        machine_code = "ready" if report.ok else (report.machine_code or "preflight/unknown")
+        status: dict[str, Any] = {
+            "ok": report.ok,
+            "machine_code": machine_code,
+            "label_hint": _readiness_label(machine_code, report.ok),
+            "checked_at": datetime.now(UTC).isoformat(),
+        }
+
+        if report.reason:
+            status["reason"] = report.reason
+
+        evidence = _safe_readiness_evidence(report.evidence)
+        if evidence:
+            status["evidence"] = evidence
+
+        return status
 
     def _resolve_prompt(self, params: Mapping[str, Any]) -> str:
         return _ensure_prompt(_pick_first(params, "prompt", "text", "input"))
