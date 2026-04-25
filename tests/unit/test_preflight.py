@@ -12,6 +12,10 @@ from codex_backend.contracts import (
 from codex_backend.preflight import detect_auth_states, run_preflight
 
 
+def _successful_version_runner(command):
+    return type("Proc", (), {"returncode": 0, "stdout": "codex 0.124.0", "stderr": ""})()
+
+
 def test_run_preflight_passes_for_supported_authenticated_entitled_runtime() -> None:
     report = run_preflight(
         executable="codex",
@@ -62,6 +66,54 @@ def test_run_preflight_accepts_codex_0_124_from_default_allowlist() -> None:
     assert report.supported_version_range == "0.122.0, 0.124.0"
 
 
+def test_run_preflight_allows_experimental_windows_amd64_when_existing_gates_pass() -> None:
+    report = run_preflight(
+        executable="codex",
+        which=lambda _: r"C:\\Tools\\codex.cmd",
+        runner=_successful_version_runner,
+        platform_resolver=lambda: "Windows",
+        machine_resolver=lambda: "AMD64",
+        auth_detector=lambda _: ("authenticated", "entitled", None),
+    )
+
+    assert report.ok is True
+    assert report.machine_code is None
+    assert report.evidence.platform == "windows/x86_64"
+    assert report.evidence.runtime_version == "0.124.0"
+
+
+def test_run_preflight_normalizes_windows_x86_64_aliases() -> None:
+    observed_platforms = []
+    for machine in ("x86_64", "x64"):
+        report = run_preflight(
+            executable="codex",
+            which=lambda _: r"C:\\Tools\\codex.exe",
+            runner=_successful_version_runner,
+            platform_resolver=lambda: "Windows",
+            machine_resolver=lambda machine=machine: machine,
+            auth_detector=lambda _: ("authenticated", "entitled", None),
+        )
+        assert report.ok is True
+        observed_platforms.append(report.evidence.platform)
+
+    assert observed_platforms == ["windows/x86_64", "windows/x86_64"]
+
+
+def test_run_preflight_blocks_windows_aarch64_alias_as_unsupported() -> None:
+    report = run_preflight(
+        executable="codex",
+        which=lambda _: r"C:\\Tools\\codex.exe",
+        runner=_successful_version_runner,
+        platform_resolver=lambda: "Windows",
+        machine_resolver=lambda: "aarch64",
+        auth_detector=lambda _: ("authenticated", "entitled", None),
+    )
+
+    assert report.ok is False
+    assert report.machine_code == PREFLIGHT_CODE_UNSUPPORTED_PLATFORM
+    assert report.evidence.platform == "windows/arm64"
+
+
 def test_run_preflight_allows_linux_arm64_for_current_host_preview_path() -> None:
     report = run_preflight(
         executable="codex",
@@ -96,6 +148,19 @@ def test_run_preflight_blocks_when_platform_is_unsupported() -> None:
     assert report.ok is False
     assert report.machine_code == PREFLIGHT_CODE_UNSUPPORTED_PLATFORM
     assert report.evidence.platform == "linux/ppc64le"
+
+
+def test_run_preflight_keeps_windows_arm64_unsupported() -> None:
+    report = run_preflight(
+        which=lambda _: r"C:\\Tools\\codex.exe",
+        platform_resolver=lambda: "Windows",
+        machine_resolver=lambda: "ARM64",
+    )
+
+    assert report.ok is False
+    assert report.machine_code == PREFLIGHT_CODE_UNSUPPORTED_PLATFORM
+    assert report.evidence.platform == "windows/arm64"
+    assert "windows/arm64" in report.reason
 
 
 def test_run_preflight_blocks_when_version_is_not_allowlisted() -> None:

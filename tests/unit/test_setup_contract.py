@@ -46,6 +46,13 @@ def test_resolve_codex_app_server_source_defaults_to_reviewed_pin(tmp_path):
     assert module.resolve_codex_app_server_source(payload) == module.DEFAULT_CODEX_APP_SERVER_SOURCE
 
 
+def test_pip_executable_uses_windows_virtualenv_scripts_path(monkeypatch):
+    module = _load_setup_module()
+    monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+
+    assert module.pip_executable(Path("venv")) == Path("venv") / "Scripts" / "pip.exe"
+
+
 def test_normalize_payload_rejects_missing_python_exe(tmp_path):
     module = _load_setup_module()
 

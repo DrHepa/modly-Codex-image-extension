@@ -27,7 +27,7 @@ This project is an independent integration experiment and is **not** affiliated 
 - **Headless eligibility**: conditional; generation can run through Modly's backend model surfaces, but GitHub install/repair and app-level flows remain outside this extension's headless contract
 - **Validated host path**: `linux/arm64` with generation verified on `codex-cli 0.122.0` and readiness verified on `codex-cli 0.124.0`
 - **Supported Codex CLI versions**: `0.122.0`, `0.124.0`
-- **Configured platform allowlist**: `darwin/arm64`, `darwin/x86_64`, `linux/arm64`, `linux/x86_64`
+- **Configured platform allowlist**: `darwin/arm64`, `darwin/x86_64`, `linux/arm64`, `linux/x86_64`, `windows/x86_64` as **Experimental / pending validation**
 - **Linux ARM64 risk**: still marked high in metadata because it is validated on the current host path, not proven as a broad portability guarantee
 
 ## Platform support
@@ -40,7 +40,8 @@ Runtime support is intentionally narrower than setup portability. `setup.py` con
 | Linux `x86_64` | Supported by preflight allowlist | Enabled in V1 preflight; validate with the local Codex install, login, entitlement, and supported CLI version before treating a host as production-ready. |
 | macOS `arm64` | Allowed by preflight; pending live smoke here | Enabled in V1 preflight, but not live-smoked in this repository's current evidence set. |
 | macOS `x86_64` | Allowed by preflight; pending live smoke here | Enabled in V1 preflight, but not live-smoked in this repository's current evidence set. |
-| Windows | Experimental / pending validation | `setup.py` has Windows-aware venv paths, but Windows is not enabled as a supported runtime in V1 preflight. Do not document or operate it as supported generation runtime yet. |
+| Windows `x86_64` | Experimental / pending validation | Enabled only as an evidence-gated experimental preflight path for real smoke testing. Do not document or operate it as a supported generation runtime until CLI/auth/setup/generation/output/preview smoke evidence exists. |
+| Windows `arm64` | Unsupported / fail-closed | Not enabled in V1 preflight. ARM64 requires separate Codex CLI and `codex_app_server` smoke evidence before reconsideration. |
 
 ## Prerequisites
 
@@ -150,6 +151,7 @@ The extension accepts only **workspace-relative** output targets.
 
 - Empty targets are rejected.
 - Absolute external paths are rejected.
+- Windows-shaped absolute, UNC, drive-relative, and backslash traversal targets are rejected even on POSIX test hosts.
 - Traversal-like paths such as `../foo.png` are rejected.
 - Directory targets are allowed; the extension creates a filename inside the directory.
 - File targets must end with `.png`, `.jpg`, `.jpeg`, or `.webp`.
@@ -175,6 +177,7 @@ See `docs/decisions/v1-locks.md` for the branch-local `modly-private` image prev
 - App-level GitHub install/repair automation.
 - Cross-host preview guarantees outside the validated local Modly host path.
 - Codex CLI installation, upgrade, authentication, or repair from `setup.py`.
+- Promoting Windows from `Experimental / pending validation` without a completed manual smoke checklist.
 
 ## Failure taxonomy
 

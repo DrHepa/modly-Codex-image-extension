@@ -11,6 +11,7 @@
 - Aligns with Modly's V1 `model-managed-setup` contract: users manage Codex install/login/entitlement, while the extension manages its Python venv, SDK bootstrap, request validation, preflight checks, local Codex call, and output persistence.
 - Adds readiness actions/status support for Modly host UIs, with placeholder/debug actions removed from the public card surface.
 - Expands the default Codex CLI allowlist to `0.122.0` and `0.124.0`.
+- Adds an evidence-gated Windows `x86_64` experimental preflight path for smoke validation; this is **not** a Windows support claim.
 
 ### Validated path
 
@@ -25,5 +26,6 @@
 - Headless generation is conditional on a running Modly backend and satisfied local runtime prerequisites; app-level GitHub install/repair flows are outside this extension's headless contract.
 - Compatibility remains allowlist-based. The default approved Codex runtime versions are `0.122.0` and `0.124.0` unless `CODEX_SUPPORTED_VERSIONS` is deliberately overridden.
 - Linux ARM64 remains marked as high risk in metadata because current validation is host-specific, not a broad portability guarantee.
-- Windows remains experimental / pending validation and is not enabled as a supported runtime platform in V1 preflight.
+- Windows `x86_64` remains **Experimental / pending validation** even though preflight may proceed when all local gates pass; Windows `arm64` remains unsupported/fail-closed.
+- Windows validation still requires manual smoke evidence for CLI discovery/version, read-only auth parse, setup, text-to-image, image-to-image, workspace output, and Modly preview.
 - V1 returns one image only; no batch, multi-output, video, audio, remote API-key, or cloud-fallback modes are included.

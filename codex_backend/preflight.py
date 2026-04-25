@@ -24,6 +24,7 @@ SUPPORTED_PLATFORM_MATRIX = {
     ("darwin", "x86_64"),
     ("linux", "arm64"),
     ("linux", "x86_64"),
+    ("windows", "x86_64"),
 }
 AUTHENTICATED_STATES = {"active", "authenticated", "logged_in", "ok"}
 ENTITLED_STATES = {"active", "entitled", "ok", "plus", "pro", "team"}

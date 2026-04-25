@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import re
 from pathlib import Path
 from typing import Callable
 
@@ -14,6 +15,21 @@ from .contracts import (
 )
 
 
+WINDOWS_DRIVE_PREFIX_PATTERN = re.compile(r"^[A-Za-z]:")
+
+
+def _reject_windows_shaped_unsafe_target(raw_target: str) -> None:
+    normalized = raw_target.replace("\\", "/")
+    if raw_target.startswith(("\\\\", "//")):
+        raise CodexExtensionError(OUTPUT_CODE_INVALID_TARGET, "Output target must be workspace-relative.")
+
+    if WINDOWS_DRIVE_PREFIX_PATTERN.match(raw_target):
+        raise CodexExtensionError(OUTPUT_CODE_INVALID_TARGET, "Output target must be workspace-relative.")
+
+    if any(part == ".." for part in normalized.split("/")):
+        raise CodexExtensionError(OUTPUT_CODE_INVALID_TARGET, "Output target must not traverse outside the workspace.")
+
+
 def _ensure_previewable_extension(path: Path, *, code: str) -> str:
     suffix = path.suffix.lower()
     if suffix not in PREVIEWABLE_IMAGE_EXTENSIONS:
@@ -25,6 +41,8 @@ def _validate_workspace_relative_target(output_target: Path) -> Path:
     raw_target = str(output_target).strip()
     if not raw_target:
         raise CodexExtensionError(OUTPUT_CODE_INVALID_TARGET, "Output target must not be empty.")
+
+    _reject_windows_shaped_unsafe_target(raw_target)
 
     target = Path(raw_target)
     if target.is_absolute():

@@ -21,6 +21,7 @@ LOCKED_DIAGNOSTIC_KEYS = {
     "runtime_version_supported",
     "supported_versions",
     "platform_supported",
+    "platform_support_state",
     "platform_key",
     "auth_state",
     "entitlement_state",
@@ -282,6 +283,51 @@ def test_readiness_status_returns_disabled_unsupported_platform_details(monkeypa
     assert status["details"]["diagnostics"]["platform_supported"] == "false"
 
 
+def test_readiness_status_reports_windows_x86_64_as_experimental_and_sanitized(monkeypatch) -> None:  # noqa: ANN001
+    status = readiness_from(
+        PreflightReport(
+            ok=True,
+            supported_version_range="0.122.0, 0.124.0",
+            evidence=RuntimeEvidence(
+                runtime_name="codex",
+                runtime_version="0.124.0",
+                runtime_executable=r"C:\Users\example\AppData\Local\codex.cmd",
+                runtime_version_source="raw command output: CODEX_TOKEN=secret",
+                auth_state="authenticated",
+                auth_reason="CODEX_TOKEN=secret from environment",
+                entitlement_state="entitled",
+                platform="windows/x86_64",
+            ),
+        ),
+        monkeypatch,
+    )
+
+    diagnostics = assert_locked_sanitized_diagnostics(status)
+    assert diagnostics["platform_key"] == "windows/x86_64"
+    assert diagnostics["platform_supported"] == "true"
+    assert diagnostics["platform_support_state"] == "experimental"
+    assert diagnostics["diagnostic_status"] == "ready"
+
+
+def test_readiness_status_keeps_windows_arm64_unsupported(monkeypatch) -> None:  # noqa: ANN001
+    status = readiness_from(
+        PreflightReport(
+            ok=False,
+            machine_code=PREFLIGHT_CODE_UNSUPPORTED_PLATFORM,
+            reason="Platform windows/arm64 is not enabled for this V1 extension.",
+            supported_version_range="0.122.0, 0.124.0",
+            evidence=RuntimeEvidence(runtime_name="codex", platform="windows/arm64"),
+        ),
+        monkeypatch,
+    )
+
+    diagnostics = assert_locked_sanitized_diagnostics(status)
+    assert status["label_hint"] == "Unsupported"
+    assert diagnostics["platform_key"] == "windows/arm64"
+    assert diagnostics["platform_supported"] == "false"
+    assert diagnostics["platform_support_state"] == "unsupported"
+
+
 def test_readiness_status_returns_ready_details_without_mutation(monkeypatch) -> None:  # noqa: ANN001
     status = readiness_from(
         PreflightReport(
@@ -334,6 +380,7 @@ def test_readiness_status_diagnostics_use_only_locked_keys_and_sanitized_values(
         "runtime_version_supported": "true",
         "supported_versions": "0.122.0",
         "platform_supported": "true",
+        "platform_support_state": "enabled",
         "platform_key": "linux/x86_64",
         "auth_state": "unauthenticated",
         "entitlement_state": "unknown",

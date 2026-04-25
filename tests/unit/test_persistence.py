@@ -58,6 +58,37 @@ def test_validate_output_target_contract_rejects_invalid_targets_before_persiste
     assert getattr(exc_info.value, "machine_code", None) == expected_code
 
 
+@pytest.mark.parametrize(
+    "raw_target",
+    [
+        r"C:\Users\me\out.png",
+        "D:/out.png",
+        r"\\server\share\out.png",
+        "C:out.png",
+        r"..\escape.png",
+        r"safe\..\escape.png",
+    ],
+)
+def test_validate_output_target_contract_rejects_windows_shaped_unsafe_targets(
+    raw_target: str,
+    tmp_path: Path,
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    with pytest.raises(CodexExtensionError) as exc_info:
+        validate_output_target_contract(workspace_root, raw_target)
+
+    assert getattr(exc_info.value, "machine_code", None) == OUTPUT_CODE_INVALID_TARGET
+
+
+def test_validate_output_target_contract_accepts_workspace_relative_codex_target(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+
+    assert validate_output_target_contract(workspace_root, "codex/result.png") == Path("codex/result.png")
+
+
 def test_persist_result_image_returns_previewable_absolute_path_for_file_target(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

@@ -31,7 +31,8 @@ V1 locks a **conservative compatibility rule**:
 ### Current V1 assumption
 - Because this repository does not yet contain broad published compatibility data, the working implementation uses a **curated allowlist** rather than a permissive version range.
 - Expanding that allowlist requires an explicit update to this document and targeted preflight evidence.
-- Windows remains **experimental / pending validation** and is not enabled as a supported runtime platform in V1 preflight.
+- Windows `x86_64` is enabled only as an **Experimental / pending validation** preflight path; Windows `arm64` remains unsupported/fail-closed.
+- This is a testability gate, not a support promotion. Support promotion requires recorded manual smoke evidence for CLI discovery/version, read-only auth parsing, setup, generation, output persistence, and Modly preview.
 
 ## Locked: `codex_app_server` dependency strategy
 
@@ -57,6 +58,7 @@ V1 locks a **conservative source-based strategy** for `codex_app_server`:
 - Python-first subprocess structure stays in-repo under `codex_backend/`.
 - `setup.py` remains present because the approved design targets Modly's subprocess extension flow.
 - Initial bootstrap dependencies stay minimal: setuptools-based packaging plus test extras only.
+- `setup.py` may choose the platform-correct virtualenv pip path, including `venv/Scripts/pip.exe` on Windows, but must not install, update, authenticate, or repair the Codex CLI.
 
 ## Locked: identity boundary
 

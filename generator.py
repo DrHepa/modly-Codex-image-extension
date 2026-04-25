@@ -198,6 +198,15 @@ SUPPORTED_PLATFORM_KEYS = {
     "darwin/x86_64",
     "linux/arm64",
     "linux/x86_64",
+    "windows/x86_64",
+}
+
+PLATFORM_SUPPORT_STATES = {
+    "darwin/arm64": "enabled",
+    "darwin/x86_64": "enabled",
+    "linux/arm64": "enabled",
+    "linux/x86_64": "enabled",
+    "windows/x86_64": "experimental",
 }
 
 GENERIC_REFRESH_ACTION = {
@@ -243,6 +252,12 @@ def _platform_supported(platform_key: str | None) -> str:
     return "true" if platform_key in SUPPORTED_PLATFORM_KEYS else "false"
 
 
+def _platform_support_state(platform_key: str | None) -> str:
+    if not platform_key:
+        return "unknown"
+    return PLATFORM_SUPPORT_STATES.get(platform_key, "unsupported")
+
+
 def _readiness_diagnostics(report: Any, machine_code: str, checked_at: str) -> dict[str, str]:
     evidence = report.evidence
     runtime_version = getattr(evidence, "runtime_version", None)
@@ -251,6 +266,7 @@ def _readiness_diagnostics(report: Any, machine_code: str, checked_at: str) -> d
         "runtime_source": str(getattr(evidence, "source", "local-codex-command")),
         "runtime_version_supported": _runtime_version_supported(runtime_version, report.supported_version_range),
         "platform_supported": _platform_supported(platform_key),
+        "platform_support_state": _platform_support_state(platform_key),
         "extension_setup_state": "ready",
         "extension_import_state": "ready",
         "codex_app_server_state": "not_checked",
