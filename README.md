@@ -23,11 +23,24 @@ This project is an independent integration experiment and is **not** affiliated 
 - **Modly surface owner**: FastAPI model extension
 - **Bucket**: `model-managed-setup`
 - **Implementation profile**: `python-local-bridge`
-- **Setup contract**: user-managed Codex install/login; extension-managed Python venv, pinned `codex_app_server` bootstrap, and preflight checks
+- **Setup contract**: user-managed Codex CLI install/login; extension-managed Python venv, pinned `codex_app_server` Python SDK/dependency bootstrap, and preflight checks
 - **Headless eligibility**: conditional; generation can run through Modly's backend model surfaces, but GitHub install/repair and app-level flows remain outside this extension's headless contract
-- **Validated host path**: `linux/arm64` with `codex-cli 0.122.0`
+- **Validated host path**: `linux/arm64` with generation verified on `codex-cli 0.122.0` and readiness verified on `codex-cli 0.124.0`
+- **Supported Codex CLI versions**: `0.122.0`, `0.124.0`
 - **Configured platform allowlist**: `darwin/arm64`, `darwin/x86_64`, `linux/arm64`, `linux/x86_64`
 - **Linux ARM64 risk**: still marked high in metadata because it is validated on the current host path, not proven as a broad portability guarantee
+
+## Platform support
+
+Runtime support is intentionally narrower than setup portability. `setup.py` contains platform-aware Python venv handling, but V1 runtime preflight is the source of truth for enabled generation platforms.
+
+| Platform | Runtime status | Notes |
+| --- | --- | --- |
+| Linux `arm64` | Supported / locally validated | Generation was verified with `codex-cli 0.122.0`; readiness/preflight was also verified with `0.124.0`. Every host must still pass local preflight. |
+| Linux `x86_64` | Supported by preflight allowlist | Enabled in V1 preflight; validate with the local Codex install, login, entitlement, and supported CLI version before treating a host as production-ready. |
+| macOS `arm64` | Allowed by preflight; pending live smoke here | Enabled in V1 preflight, but not live-smoked in this repository's current evidence set. |
+| macOS `x86_64` | Allowed by preflight; pending live smoke here | Enabled in V1 preflight, but not live-smoked in this repository's current evidence set. |
+| Windows | Experimental / pending validation | `setup.py` has Windows-aware venv paths, but Windows is not enabled as a supported runtime in V1 preflight. Do not document or operate it as supported generation runtime yet. |
 
 ## Prerequisites
 
@@ -37,8 +50,8 @@ Before installing or using the extension, the host must already have:
 2. Python `>=3.11` available for the extension environment.
 3. A local `codex` executable available on `PATH`.
 4. A local Codex session already authenticated with a supported ChatGPT entitlement.
-5. A Codex runtime version approved by the extension preflight allowlist.
-   - Default V1 lock: `0.122.0`.
+5. A Codex CLI runtime version approved by the extension preflight allowlist.
+   - Default V1 lock: `0.122.0` or `0.124.0`.
    - Override only when deliberately validating another version: `CODEX_SUPPORTED_VERSIONS=...`.
 
 The extension setup installs `codex_app_server` from this pinned reviewed source unless explicitly overridden:
@@ -47,7 +60,7 @@ The extension setup installs `codex_app_server` from this pinned reviewed source
 git+https://github.com/openai/codex.git@a9f75e5cda2d6ff469a859baf8d2f50b9b04944a#subdirectory=sdk/python
 ```
 
-This repo does **not** claim that `codex_app_server` is a stable public PyPI package. The pinned direct-source install is part of the V1 setup contract.
+This repo does **not** claim that `codex_app_server` is a stable public PyPI package. The pinned direct-source install is part of the V1 setup contract. It does **not** install or upgrade the Codex CLI itself; the CLI must already be installed and authenticated by the user.
 
 ## Installation / consumption path
 
@@ -70,7 +83,7 @@ Optional override:
 
 - `codex_app_server_source`: replacement source for `codex_app_server` when intentionally reviewing a different source.
 
-The setup script creates `venv/` inside the extension directory, upgrades packaging tools, and installs the pinned `codex_app_server` source.
+The setup script creates `venv/` inside the extension directory, upgrades packaging tools, and installs the pinned `codex_app_server` Python SDK/dependency source. It does not install, update, authenticate, or repair the Codex CLI runtime.
 
 ### GitHub install caveat for private repositories
 
@@ -125,10 +138,10 @@ The extension will:
 4. Persist one image under the Modly workspace/output target.
 5. Return the absolute local image path to Modly.
 
-Verified local generation evidence from the current host:
+Verified local generation evidence from the current host produced an absolute workspace image path similar to:
 
 ```text
-/home/drhepa/Documentos/Modly/workspace/Default/codex/text-to-image-5eba339eef194816b38faf79a559b966.png
+<modly-workspace>/Default/codex/text-to-image-<request-id>.png
 ```
 
 ## Output path rules
@@ -161,6 +174,7 @@ See `docs/decisions/v1-locks.md` for the branch-local `modly-private` image prev
 - Public package readiness claims for `codex_app_server`.
 - App-level GitHub install/repair automation.
 - Cross-host preview guarantees outside the validated local Modly host path.
+- Codex CLI installation, upgrade, authentication, or repair from `setup.py`.
 
 ## Failure taxonomy
 
@@ -198,7 +212,7 @@ Human-readable messaging for these codes lives in `codex_backend/errors.py`.
 ## Repo orientation
 
 - `manifest.json` — planned identity, UI metadata, and `nodes` definitions for Modly discovery.
-- `setup.py` — Modly setup entrypoint that creates the extension venv and installs the pinned `codex_app_server` source.
+- `setup.py` — Modly setup entrypoint that creates the extension venv and installs the pinned `codex_app_server` Python SDK/dependency source; it does not install the Codex CLI.
 - `generator.py` — Modly-facing orchestration entrypoint.
 - `codex_backend/` — Codex adapter, preflight, persistence, contracts, and errors.
 - `docs/architecture.md` — module boundaries and recommended implementation order.

@@ -24,13 +24,14 @@ V1 accepts **local runtime evidence only** for Codex detection/version reporting
 
 V1 locks a **conservative compatibility rule**:
 
-- Supported Codex runtime evidence: **only the exact local runtime major version(s) explicitly approved by this repository's tests/docs at implementation time**.
-- Current V1 bootstrap approval: **`0.122.0` only** unless the allowlist is explicitly overridden.
+- Supported Codex runtime evidence: **only the exact local runtime version(s) explicitly approved by this repository's tests/docs at implementation time**.
+- Current V1 bootstrap approval: **`0.122.0` and `0.124.0`** unless the allowlist is explicitly overridden.
 - Until integration/preflight work proves more, later implementation must treat compatibility as an **allowlist check backed by direct runtime evidence**, not a permissive `>=` range.
 
 ### Current V1 assumption
-- Because this repository does not yet contain verified runtime fixtures or published compatibility data, the first working implementation may begin with a **single locked runtime evidence string or curated allowlist**.
-- Expanding that allowlist requires an explicit update to this document.
+- Because this repository does not yet contain broad published compatibility data, the working implementation uses a **curated allowlist** rather than a permissive version range.
+- Expanding that allowlist requires an explicit update to this document and targeted preflight evidence.
+- Windows remains **experimental / pending validation** and is not enabled as a supported runtime platform in V1 preflight.
 
 ## Locked: `codex_app_server` dependency strategy
 
@@ -76,7 +77,8 @@ V1 locks a **conservative source-based strategy** for `codex_app_server`:
 ## Assumptions still not promoted to locks
 
 - Exact upstream source location for `codex_app_server`.
-- Exact Codex runtime version strings that should be allowlisted.
+- Additional Codex runtime version strings beyond the current curated allowlist.
+- Windows runtime behavior for Codex CLI detection, authentication probes, and `codex_app_server` execution.
 - Host preview behavior outside the already documented branch-local observations.
 
 These remain assumptions until later phases add verified implementation evidence and contract tests.
