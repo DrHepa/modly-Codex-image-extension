@@ -31,8 +31,8 @@ V1 locks a **conservative compatibility rule**:
 ### Current V1 assumption
 - Because daily Codex CLI releases can otherwise block newly updated users immediately, the working implementation uses a **minimum version gate** by default.
 - Newer versions pass preflight as **experimental/unvalidated**; support claims still require explicit smoke evidence before documentation can promote them.
-- Windows `x86_64` is enabled only as an **Experimental / pending validation** preflight path; Windows `arm64` remains unsupported/fail-closed.
-- This is a testability gate, not a support promotion. Support promotion requires recorded manual smoke evidence for CLI discovery/version, read-only auth parsing, setup, generation, output persistence, and Modly preview.
+- Windows `x86_64` is enabled as an **Experimental / smoke-validated on one host** preflight path; Windows `arm64` remains unsupported/fail-closed.
+- This is a limited validation gate, not a broad support promotion. Broader support promotion requires more recorded smoke evidence for CLI discovery/version, read-only auth parsing, setup, generation, output persistence, and Modly preview across target hosts.
 
 ## Locked: `codex_app_server` dependency strategy
 
@@ -58,7 +58,7 @@ V1 locks a **conservative source-based strategy** for `codex_app_server`:
 - Python-first subprocess structure stays in-repo under `codex_backend/`.
 - `setup.py` remains present because the approved design targets Modly's subprocess extension flow.
 - Initial bootstrap dependencies stay minimal: setuptools-based packaging plus test extras only.
-- `setup.py` may choose the platform-correct virtualenv pip path, including `venv/Scripts/pip.exe` on Windows, but must not install, update, authenticate, or repair the Codex CLI.
+- `setup.py` must run pip through the platform-correct venv Python (`python -m pip`), including `venv/Scripts/python.exe -m pip` on Windows, and must not install, update, authenticate, or repair the Codex CLI.
 
 ## Locked: identity boundary
 
@@ -80,7 +80,7 @@ V1 locks a **conservative source-based strategy** for `codex_app_server`:
 
 - Exact upstream source location for `codex_app_server`.
 - Additional Codex runtime version strings beyond the current minimum policy.
-- Windows runtime behavior for Codex CLI detection, authentication probes, and `codex_app_server` execution.
+- Broader Windows runtime behavior beyond the single smoke-validated `windows/x86_64` host.
 - Host preview behavior outside the already documented branch-local observations.
 
 These remain assumptions until later phases add verified implementation evidence and contract tests.

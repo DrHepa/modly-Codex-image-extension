@@ -25,9 +25,9 @@ This project is an independent integration experiment and is **not** affiliated 
 - **Implementation profile**: `python-local-bridge`
 - **Setup contract**: user-managed Codex CLI install/login; extension-managed Python venv, pinned `codex_app_server` Python SDK/dependency bootstrap, and preflight checks
 - **Headless eligibility**: conditional; generation can run through Modly's backend model surfaces, but GitHub install/repair and app-level flows remain outside this extension's headless contract
-- **Validated host path**: `linux/arm64` with generation verified on `codex-cli 0.122.0` and readiness verified on `codex-cli 0.124.0`
+- **Validated host paths**: `linux/arm64` with generation verified on `codex-cli 0.122.0` and readiness verified on `codex-cli 0.124.0`; `windows/x86_64` smoke-validated on one user host with setup, SDK import, and generation working after the Windows setup/runtime fixes
 - **Codex CLI compatibility policy**: minimum `>= 0.122.0` by default; newer versions pass preflight as experimental/unvalidated until smoke evidence records them
-- **Configured platform allowlist**: `darwin/arm64`, `darwin/x86_64`, `linux/arm64`, `linux/x86_64`, `windows/x86_64` as **Experimental / pending validation**
+- **Configured platform allowlist**: `darwin/arm64`, `darwin/x86_64`, `linux/arm64`, `linux/x86_64`, `windows/x86_64` as **Experimental / smoke-validated on one host**
 - **Linux ARM64 risk**: still marked high in metadata because it is validated on the current host path, not proven as a broad portability guarantee
 
 ## Platform support
@@ -40,7 +40,7 @@ Runtime support is intentionally narrower than setup portability. `setup.py` con
 | Linux `x86_64` | Supported by preflight allowlist | Enabled in V1 preflight; validate with the local Codex install, login, entitlement, and supported CLI version before treating a host as production-ready. |
 | macOS `arm64` | Allowed by preflight; pending live smoke here | Enabled in V1 preflight, but not live-smoked in this repository's current evidence set. |
 | macOS `x86_64` | Allowed by preflight; pending live smoke here | Enabled in V1 preflight, but not live-smoked in this repository's current evidence set. |
-| Windows `x86_64` | Experimental / pending validation | Enabled only as an evidence-gated experimental preflight path for real smoke testing. Do not document or operate it as a supported generation runtime until CLI/auth/setup/generation/output/preview smoke evidence exists. |
+| Windows `x86_64` | Experimental / smoke-validated on one host | Enabled as an evidence-gated experimental preflight path. Setup, SDK import, and generation have been smoke-validated on one user Windows host; keep treating additional Windows hosts as requiring local preflight/smoke evidence before production use. |
 | Windows `arm64` | Unsupported / fail-closed | Not enabled in V1 preflight. ARM64 requires separate Codex CLI and `codex_app_server` smoke evidence before reconsideration. |
 
 ## Prerequisites
@@ -85,7 +85,7 @@ Optional override:
 
 - `codex_app_server_source`: replacement source for `codex_app_server` when intentionally reviewing a different source.
 
-The setup script creates `venv/` inside the extension directory, upgrades packaging tools, and installs the pinned `codex_app_server` Python SDK/dependency source. It does not install, update, authenticate, or repair the Codex CLI runtime.
+The setup script creates `venv/` inside the extension directory, upgrades packaging tools through the venv Python (`python -m pip`, including `venv/Scripts/python.exe -m pip` on Windows), and installs the pinned `codex_app_server` Python SDK/dependency source. It does not install, update, authenticate, or repair the Codex CLI runtime.
 
 ### GitHub install caveat for private repositories
 
@@ -178,7 +178,7 @@ See `docs/decisions/v1-locks.md` for the branch-local `modly-private` image prev
 - App-level GitHub install/repair automation.
 - Cross-host preview guarantees outside the validated local Modly host path.
 - Codex CLI installation, upgrade, authentication, or repair from `setup.py`.
-- Promoting Windows from `Experimental / pending validation` without a completed manual smoke checklist.
+- Promoting Windows beyond `Experimental / smoke-validated on one host` without broader recorded smoke evidence.
 
 ## Failure taxonomy
 
