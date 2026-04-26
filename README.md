@@ -26,7 +26,7 @@ This project is an independent integration experiment and is **not** affiliated 
 - **Setup contract**: user-managed Codex CLI install/login; extension-managed Python venv, pinned `codex_app_server` Python SDK/dependency bootstrap, and preflight checks
 - **Headless eligibility**: conditional; generation can run through Modly's backend model surfaces, but GitHub install/repair and app-level flows remain outside this extension's headless contract
 - **Validated host path**: `linux/arm64` with generation verified on `codex-cli 0.122.0` and readiness verified on `codex-cli 0.124.0`
-- **Supported Codex CLI versions**: `0.122.0`, `0.124.0`
+- **Codex CLI compatibility policy**: minimum `>= 0.122.0` by default; newer versions pass preflight as experimental/unvalidated until smoke evidence records them
 - **Configured platform allowlist**: `darwin/arm64`, `darwin/x86_64`, `linux/arm64`, `linux/x86_64`, `windows/x86_64` as **Experimental / pending validation**
 - **Linux ARM64 risk**: still marked high in metadata because it is validated on the current host path, not proven as a broad portability guarantee
 
@@ -51,9 +51,10 @@ Before installing or using the extension, the host must already have:
 2. Python `>=3.11` available for the extension environment.
 3. A local `codex` executable available on `PATH`.
 4. A local Codex session already authenticated with a supported ChatGPT entitlement.
-5. A Codex CLI runtime version approved by the extension preflight allowlist.
-   - Default V1 lock: `0.122.0` or `0.124.0`.
-   - Override only when deliberately validating another version: `CODEX_SUPPORTED_VERSIONS=...`.
+5. A Codex CLI runtime version that passes the extension preflight compatibility policy.
+   - Default V1 minimum: `>= 0.122.0`.
+   - Override the minimum only when deliberately validating another floor: `CODEX_MIN_SUPPORTED_VERSION=...`.
+   - Use strict exact allowlisting only for validation/debugging: `CODEX_SUPPORTED_VERSIONS=0.124.0,...`.
 
 The extension setup installs `codex_app_server` from this pinned reviewed source unless explicitly overridden:
 
@@ -189,7 +190,7 @@ Errors are explicit and machine-coded so Modly or callers can present useful mes
 - `preflight/not_authenticated` — local Codex authentication could not be verified.
 - `preflight/no_entitlement` — a supported ChatGPT entitlement could not be verified.
 - `preflight/unsupported_platform` — the host platform is not enabled for V1.
-- `preflight/unsupported_version` — the detected Codex version is not in the allowlist.
+- `preflight/unsupported_version` — the detected Codex version is missing/unparsable, below the minimum, or outside an explicit exact allowlist.
 
 ### Request validation
 

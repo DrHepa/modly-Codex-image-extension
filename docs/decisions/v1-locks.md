@@ -24,13 +24,13 @@ V1 accepts **local runtime evidence only** for Codex detection/version reporting
 
 V1 locks a **conservative compatibility rule**:
 
-- Supported Codex runtime evidence: **only the exact local runtime version(s) explicitly approved by this repository's tests/docs at implementation time**.
-- Current V1 bootstrap approval: **`0.122.0` and `0.124.0`** unless the allowlist is explicitly overridden.
-- Until integration/preflight work proves more, later implementation must treat compatibility as an **allowlist check backed by direct runtime evidence**, not a permissive `>=` range.
+- Supported Codex runtime evidence starts at a **minimum supported CLI version** and remains evidence-gated for support promotion.
+- Current V1 bootstrap minimum: **`>= 0.122.0`** unless the minimum is explicitly overridden.
+- `CODEX_SUPPORTED_VERSIONS` remains available as a deliberate strict exact allowlist for validation/debugging, but it is not the default user-facing gate.
 
 ### Current V1 assumption
-- Because this repository does not yet contain broad published compatibility data, the working implementation uses a **curated allowlist** rather than a permissive version range.
-- Expanding that allowlist requires an explicit update to this document and targeted preflight evidence.
+- Because daily Codex CLI releases can otherwise block newly updated users immediately, the working implementation uses a **minimum version gate** by default.
+- Newer versions pass preflight as **experimental/unvalidated**; support claims still require explicit smoke evidence before documentation can promote them.
 - Windows `x86_64` is enabled only as an **Experimental / pending validation** preflight path; Windows `arm64` remains unsupported/fail-closed.
 - This is a testability gate, not a support promotion. Support promotion requires recorded manual smoke evidence for CLI discovery/version, read-only auth parsing, setup, generation, output persistence, and Modly preview.
 
@@ -79,7 +79,7 @@ V1 locks a **conservative source-based strategy** for `codex_app_server`:
 ## Assumptions still not promoted to locks
 
 - Exact upstream source location for `codex_app_server`.
-- Additional Codex runtime version strings beyond the current curated allowlist.
+- Additional Codex runtime version strings beyond the current minimum policy.
 - Windows runtime behavior for Codex CLI detection, authentication probes, and `codex_app_server` execution.
 - Host preview behavior outside the already documented branch-local observations.
 

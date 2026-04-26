@@ -240,9 +240,12 @@ def _supported_version_values(supported_version_range: str | None) -> tuple[str,
 
 
 def _runtime_version_supported(runtime_version: str | None, supported_version_range: str | None) -> str:
-    supported_versions = _supported_version_values(supported_version_range)
-    if not runtime_version or not supported_versions:
+    if not runtime_version or not supported_version_range:
         return "unknown"
+    if supported_version_range.startswith(">="):
+        return "true"
+
+    supported_versions = _supported_version_values(supported_version_range)
     return "true" if runtime_version in supported_versions else "false"
 
 
@@ -304,7 +307,7 @@ def _readiness_details(report: Any, machine_code: str, label: str, checked_at: s
         PREFLIGHT_CODE_CODEX_MISSING: "Codex CLI was not detected in the current runtime environment.",
         PREFLIGHT_CODE_NOT_AUTHENTICATED: "Codex authentication needs user-managed login outside Modly.",
         PREFLIGHT_CODE_NO_ENTITLEMENT: "Codex authentication was detected, but access or entitlement could not be verified.",
-        PREFLIGHT_CODE_UNSUPPORTED_VERSION: "The detected Codex runtime version is outside the extension's validated allowlist.",
+        PREFLIGHT_CODE_UNSUPPORTED_VERSION: "The detected Codex runtime version is outside the extension's compatibility policy.",
         PREFLIGHT_CODE_UNSUPPORTED_PLATFORM: "The current OS/architecture is unsupported by this V1 extension.",
         "ready": "Codex is ready; this status never starts generation or mutates runtime state.",
     }

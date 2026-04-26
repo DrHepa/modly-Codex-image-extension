@@ -36,7 +36,10 @@ def test_run_preflight_passes_for_supported_authenticated_entitled_runtime() -> 
     assert report.supported_version_range == "1.2.3"
 
 
-def test_run_preflight_uses_default_allowlist_when_env_is_not_set() -> None:
+def test_run_preflight_uses_default_minimum_when_env_is_not_set(monkeypatch) -> None:
+    monkeypatch.delenv("CODEX_SUPPORTED_VERSIONS", raising=False)
+    monkeypatch.delenv("CODEX_MIN_SUPPORTED_VERSION", raising=False)
+
     report = run_preflight(
         executable="codex",
         which=lambda _: "/usr/local/bin/codex",
@@ -47,14 +50,17 @@ def test_run_preflight_uses_default_allowlist_when_env_is_not_set() -> None:
     )
 
     assert report.ok is True
-    assert report.supported_version_range == "0.122.0, 0.124.0"
+    assert report.supported_version_range == ">= 0.122.0"
 
 
-def test_run_preflight_accepts_codex_0_124_from_default_allowlist() -> None:
+def test_run_preflight_accepts_newer_codex_from_default_minimum(monkeypatch) -> None:
+    monkeypatch.delenv("CODEX_SUPPORTED_VERSIONS", raising=False)
+    monkeypatch.delenv("CODEX_MIN_SUPPORTED_VERSION", raising=False)
+
     report = run_preflight(
         executable="codex",
         which=lambda _: "/usr/local/bin/codex",
-        runner=lambda command: type("Proc", (), {"returncode": 0, "stdout": "codex 0.124.0", "stderr": ""})(),
+        runner=lambda command: type("Proc", (), {"returncode": 0, "stdout": "codex 0.125.0", "stderr": ""})(),
         platform_resolver=lambda: "Linux",
         machine_resolver=lambda: "arm64",
         auth_detector=lambda _: ("authenticated", "entitled", None),
@@ -62,8 +68,45 @@ def test_run_preflight_accepts_codex_0_124_from_default_allowlist() -> None:
 
     assert report.ok is True
     assert report.machine_code is None
-    assert report.evidence.runtime_version == "0.124.0"
-    assert report.supported_version_range == "0.122.0, 0.124.0"
+    assert report.evidence.runtime_version == "0.125.0"
+    assert report.supported_version_range == ">= 0.122.0"
+
+
+def test_run_preflight_blocks_below_default_minimum(monkeypatch) -> None:
+    monkeypatch.delenv("CODEX_SUPPORTED_VERSIONS", raising=False)
+    monkeypatch.delenv("CODEX_MIN_SUPPORTED_VERSION", raising=False)
+
+    report = run_preflight(
+        executable="codex",
+        which=lambda _: "/usr/local/bin/codex",
+        runner=lambda command: type("Proc", (), {"returncode": 0, "stdout": "codex 0.121.9", "stderr": ""})(),
+        platform_resolver=lambda: "Linux",
+        machine_resolver=lambda: "arm64",
+        auth_detector=lambda _: ("authenticated", "entitled", None),
+    )
+
+    assert report.ok is False
+    assert report.machine_code == PREFLIGHT_CODE_UNSUPPORTED_VERSION
+    assert report.evidence.runtime_version == "0.121.9"
+    assert report.supported_version_range == ">= 0.122.0"
+
+
+def test_run_preflight_env_supported_versions_keeps_strict_exact_allowlist(monkeypatch) -> None:
+    monkeypatch.setenv("CODEX_SUPPORTED_VERSIONS", "0.124.0")
+
+    report = run_preflight(
+        executable="codex",
+        which=lambda _: "/usr/local/bin/codex",
+        runner=lambda command: type("Proc", (), {"returncode": 0, "stdout": "codex 0.125.0", "stderr": ""})(),
+        platform_resolver=lambda: "Linux",
+        machine_resolver=lambda: "arm64",
+        auth_detector=lambda _: ("authenticated", "entitled", None),
+    )
+
+    assert report.ok is False
+    assert report.machine_code == PREFLIGHT_CODE_UNSUPPORTED_VERSION
+    assert report.evidence.runtime_version == "0.125.0"
+    assert report.supported_version_range == "0.124.0"
 
 
 def test_run_preflight_allows_experimental_windows_amd64_when_existing_gates_pass() -> None:

@@ -8,7 +8,7 @@ Optional, CI-excluded smoke steps for a developer machine that already has a loc
 - Use the intended local host target with the documented branch-local image preview assumption.
 - Ensure `codex` is on `PATH`.
 - Ensure the local session is authenticated and entitled.
-- Set an explicit allowlist, for example: `export CODEX_SUPPORTED_VERSIONS=<approved-version>`.
+- Use the default minimum Codex CLI compatibility policy (`>= 0.122.0`) unless this smoke is intentionally validating a stricter exact allowlist with `CODEX_SUPPORTED_VERSIONS=<approved-version>`.
 
 ## Smoke Steps
 1. Create or activate a local Python environment for this repo.
@@ -24,7 +24,7 @@ Optional, CI-excluded smoke steps for a developer machine that already has a loc
 Windows remains **Experimental / pending validation** until every item below has concrete smoke evidence from a real Windows `x86_64` host:
 
 - [ ] CLI discovery: `codex` is found through the user's PATH/PATHEXT configuration.
-- [ ] CLI version: `codex --version` reports an exact allowlisted version (`0.122.0` or `0.124.0`, unless deliberately overridden for validation).
+- [ ] CLI version: `codex --version` reports a parseable version at or above the default minimum (`>= 0.122.0`), or an exact version from `CODEX_SUPPORTED_VERSIONS` when deliberately testing strict allowlist mode.
 - [ ] Read-only auth parse: `codex login status` / `codex auth status` can be parsed without logging in, updating, repairing, or exposing raw auth output.
 - [ ] Setup: Modly setup creates the extension venv and uses `venv/Scripts/pip.exe` to install the pinned `codex_app_server` source.
 - [ ] Text-to-image: one prompt-only request returns one saved image.

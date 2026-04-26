@@ -29,7 +29,7 @@ SUPPORTED_PLATFORM_MATRIX = {
 AUTHENTICATED_STATES = {"active", "authenticated", "logged_in", "ok"}
 ENTITLED_STATES = {"active", "entitled", "ok", "plus", "pro", "team"}
 VERSION_PATTERN = re.compile(r"(\d+(?:\.\d+){1,3})")
-DEFAULT_SUPPORTED_VERSIONS = ("0.122.0", "0.124.0")
+DEFAULT_MIN_SUPPORTED_VERSION = "0.122.0"
 
 
 def _run_command(command: Sequence[str], *, timeout: int = 10) -> subprocess.CompletedProcess[str]:
@@ -68,8 +68,27 @@ def _load_supported_versions(explicit: Sequence[str] | None = None) -> tuple[str
         return tuple(version.strip() for version in explicit if version and version.strip())
 
     raw = os.environ.get("CODEX_SUPPORTED_VERSIONS", "")
-    env_versions = tuple(version.strip() for version in raw.split(",") if version.strip())
-    return env_versions or DEFAULT_SUPPORTED_VERSIONS
+    return tuple(version.strip() for version in raw.split(",") if version.strip())
+
+
+def _load_min_supported_version() -> str:
+    return os.environ.get("CODEX_MIN_SUPPORTED_VERSION", DEFAULT_MIN_SUPPORTED_VERSION).strip() or DEFAULT_MIN_SUPPORTED_VERSION
+
+
+def _version_tuple(version: str | None) -> tuple[int, ...] | None:
+    if not version or not VERSION_PATTERN.fullmatch(version.strip()):
+        return None
+    return tuple(int(part) for part in version.strip().split("."))
+
+
+def _is_version_at_least(runtime_version: str | None, minimum_version: str) -> bool:
+    runtime_parts = _version_tuple(runtime_version)
+    minimum_parts = _version_tuple(minimum_version)
+    if runtime_parts is None or minimum_parts is None:
+        return False
+
+    width = max(len(runtime_parts), len(minimum_parts))
+    return runtime_parts + (0,) * (width - len(runtime_parts)) >= minimum_parts + (0,) * (width - len(minimum_parts))
 
 
 def _parse_version(raw_output: str) -> str | None:
@@ -237,16 +256,28 @@ def run_preflight(
     )
 
     approved_versions = _load_supported_versions(supported_versions)
-    supported_version_range = ", ".join(approved_versions) if approved_versions else None
-    if not runtime_version or runtime_version not in approved_versions:
+    if approved_versions:
+        supported_version_range = ", ".join(approved_versions)
+        version_supported = bool(runtime_version and runtime_version in approved_versions)
+        unsupported_reason = (
+            "Codex runtime version is not in the approved exact allowlist. "
+            "Set CODEX_SUPPORTED_VERSIONS only when deliberately validating strict versions."
+        )
+    else:
+        minimum_version = _load_min_supported_version()
+        supported_version_range = f">= {minimum_version}"
+        version_supported = _is_version_at_least(runtime_version, minimum_version)
+        unsupported_reason = (
+            f"Codex runtime version must be parseable and at least {minimum_version}. "
+            "Newer versions pass preflight as experimental/unvalidated until smoke evidence promotes them."
+        )
+
+    if not version_supported:
         return PreflightReport(
             ok=False,
             evidence=evidence,
             machine_code=PREFLIGHT_CODE_UNSUPPORTED_VERSION,
-            reason=(
-                "Codex runtime version is not in the approved allowlist. "
-                "Set CODEX_SUPPORTED_VERSIONS or pass supported_versions explicitly."
-            ),
+            reason=unsupported_reason,
             supported_version_range=supported_version_range,
         )
 
@@ -292,7 +323,7 @@ def run_preflight(
 
 __all__ = [
     "AUTHENTICATED_STATES",
-    "DEFAULT_SUPPORTED_VERSIONS",
+    "DEFAULT_MIN_SUPPORTED_VERSION",
     "ENTITLED_STATES",
     "SUPPORTED_PLATFORM_MATRIX",
     "detect_auth_states",

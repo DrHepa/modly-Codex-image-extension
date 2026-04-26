@@ -28,7 +28,7 @@ DEFAULT_ERROR_MESSAGES: Mapping[str, str] = {
     PREFLIGHT_CODE_NOT_AUTHENTICATED: "Codex authentication could not be verified. Sign in locally and confirm auth status before retrying.",
     PREFLIGHT_CODE_NO_ENTITLEMENT: "The current Codex session does not expose a supported ChatGPT entitlement. Switch to an entitled account and retry.",
     PREFLIGHT_CODE_UNSUPPORTED_PLATFORM: "This host platform is outside the approved V1 support matrix. Use a supported platform before retrying.",
-    PREFLIGHT_CODE_UNSUPPORTED_VERSION: "The detected Codex runtime version is not in the approved allowlist. Update CODEX_SUPPORTED_VERSIONS or use an approved runtime version.",
+    PREFLIGHT_CODE_UNSUPPORTED_VERSION: "The detected Codex runtime version is below the minimum supported version, unparsable, or outside the explicit CODEX_SUPPORTED_VERSIONS allowlist.",
     REQUEST_CODE_INVALID_PROMPT: "Prompt must be provided as a non-empty string.",
     REQUEST_CODE_MISSING_INPUT_IMAGE: "Image-to-image requests require one valid input image.",
     REQUEST_CODE_INVALID_INPUT_IMAGE: "Input image must be a readable file path or valid base64 image payload.",
