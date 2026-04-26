@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
 
+import codex_backend.adapter as adapter_module
 from codex_backend.adapter import CodexAdapter, normalize_result
 from codex_backend.contracts import (
     IMAGE_TO_IMAGE_MODE,
@@ -108,3 +110,23 @@ def test_default_adapter_reports_missing_public_sdk_exports(monkeypatch) -> None
 
     assert getattr(exc_info.value, "machine_code", None) == RUNTIME_CODE_CALL_FAILED
     assert "missing required public exports" in str(exc_info.value)
+
+
+def test_extension_site_packages_candidates_include_windows_venv_path(tmp_path: Path) -> None:
+    candidates = adapter_module._extension_site_packages_candidates(tmp_path)
+
+    assert tmp_path / "venv" / "Lib" / "site-packages" in candidates
+
+
+def test_load_codex_app_server_discovers_extension_venv_site_packages(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    site_packages = tmp_path / "venv" / "Lib" / "site-packages"
+    site_packages.mkdir(parents=True)
+    (site_packages / "codex_app_server.py").write_text("VALUE = 'from-extension-venv'\n", encoding="utf-8")
+
+    monkeypatch.setattr(adapter_module, "EXTENSION_ROOT", tmp_path)
+    monkeypatch.delitem(sys.modules, "codex_app_server", raising=False)
+    monkeypatch.setattr(sys, "path", [entry for entry in sys.path if entry != str(site_packages)])
+
+    module = adapter_module._load_codex_app_server()
+
+    assert module.VALUE == "from-extension-venv"

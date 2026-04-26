@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import os
 import shutil
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable
@@ -45,6 +46,8 @@ _NESTED_PATH_KEYS = (
     "turn",
 )
 
+EXTENSION_ROOT = Path(__file__).resolve().parents[1]
+
 
 def _as_mapping(raw: Any) -> Mapping[str, Any]:
     if isinstance(raw, Mapping):
@@ -68,7 +71,24 @@ def _as_mapping(raw: Any) -> Mapping[str, Any]:
     return {}
 
 
+def _extension_site_packages_candidates(extension_root: Path = EXTENSION_ROOT) -> list[Path]:
+    venv_dir = extension_root / "venv"
+    candidates = [venv_dir / "Lib" / "site-packages"]
+    candidates.extend(sorted((venv_dir / "lib").glob("python*/site-packages")))
+    return candidates
+
+
+def _add_extension_venv_site_packages(extension_root: Path = EXTENSION_ROOT) -> None:
+    for candidate in _extension_site_packages_candidates(extension_root):
+        if not candidate.exists():
+            continue
+        path_value = str(candidate)
+        if path_value not in sys.path:
+            sys.path.insert(0, path_value)
+
+
 def _load_codex_app_server() -> Any:
+    _add_extension_venv_site_packages(EXTENSION_ROOT)
     try:
         return importlib.import_module("codex_app_server")
     except ModuleNotFoundError as exc:
