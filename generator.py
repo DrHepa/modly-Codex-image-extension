@@ -302,20 +302,12 @@ def _readiness_diagnostics(report: Any, machine_code: str, checked_at: str) -> d
 
 
 def _readiness_details(report: Any, machine_code: str, label: str, checked_at: str) -> dict[str, Any]:
-    diagnostics = _readiness_diagnostics(report, machine_code, checked_at)
-    summary_by_code = {
-        PREFLIGHT_CODE_CODEX_MISSING: "Codex CLI was not detected in the current runtime environment.",
-        PREFLIGHT_CODE_NOT_AUTHENTICATED: "Codex authentication needs user-managed login outside Modly.",
-        PREFLIGHT_CODE_NO_ENTITLEMENT: "Codex authentication was detected, but access or entitlement could not be verified.",
-        PREFLIGHT_CODE_UNSUPPORTED_VERSION: "The detected Codex runtime version is outside the extension's compatibility policy.",
-        PREFLIGHT_CODE_UNSUPPORTED_PLATFORM: "The current OS/architecture is unsupported by this V1 extension.",
-        "ready": "Codex is ready; this status never starts generation or mutates runtime state.",
-    }
-    return {
-        "title": label,
-        "summary": summary_by_code.get(machine_code, report.reason or "Codex readiness needs attention."),
-        "diagnostics": diagnostics,
-    }
+    del report, machine_code, label, checked_at
+    # Keep the default readiness payload intentionally quiet. Older Modly hosts
+    # may render `details` inline in dense extension cards, so verbose
+    # diagnostics belong in logs or an explicit future debug surface, not in the
+    # normal readiness contract.
+    return {}
 
 
 def _readiness_actions(machine_code: str) -> list[dict[str, Any]]:

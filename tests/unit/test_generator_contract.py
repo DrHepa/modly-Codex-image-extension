@@ -14,25 +14,6 @@ from codex_backend.contracts import (
 )
 
 
-LOCKED_DIAGNOSTIC_KEYS = {
-    "runtime_source",
-    "runtime_name",
-    "runtime_version",
-    "runtime_version_supported",
-    "supported_versions",
-    "platform_supported",
-    "platform_support_state",
-    "platform_key",
-    "auth_state",
-    "entitlement_state",
-    "extension_setup_state",
-    "extension_import_state",
-    "codex_app_server_state",
-    "readiness_source",
-    "diagnostic_status",
-    "last_checked_at",
-}
-
 GENERIC_ACTION_KINDS = {"open_external_url", "refresh_readiness"}
 
 
@@ -53,20 +34,14 @@ def assert_generic_actions(status: dict[str, object]) -> list[dict[str, object]]
     return actions
 
 
-def assert_locked_sanitized_diagnostics(status: dict[str, object]) -> dict[str, str]:
-    details = status["details"]
-    assert isinstance(details, dict)
-    diagnostics = details["diagnostics"]
-    assert isinstance(diagnostics, dict)
-    assert "evidence" not in details
-    assert "guidance" not in details
-    assert set(diagnostics) <= LOCKED_DIAGNOSTIC_KEYS
+def assert_no_verbose_readiness_details(status: dict[str, object]) -> None:
+    assert status.get("details", {}) == {}
     serialized = repr(status)
     assert "/home/example" not in serialized
+    assert r"C:\Users\example" not in serialized
     assert "CODEX_TOKEN" not in serialized
     assert "secret" not in serialized
     assert "raw command output" not in serialized
-    return diagnostics
 
 
 def test_generator_class_keeps_node_specific_schema_on_runner_start() -> None:
@@ -179,7 +154,7 @@ def test_readiness_status_returns_setup_guidance_action_for_missing_codex(monkey
         "refresh_after": "never",
     }
     assert actions[-1]["kind"] == "refresh_readiness"
-    assert "Codex CLI was not detected" in status["details"]["summary"]
+    assert_no_verbose_readiness_details(status)
 
 
 def test_readiness_status_returns_login_guidance_for_missing_auth(monkeypatch) -> None:  # noqa: ANN001
@@ -205,7 +180,7 @@ def test_readiness_status_returns_login_guidance_for_missing_auth(monkeypatch) -
     assert actions[0]["id"] == "codex.login.docs"
     assert actions[0]["kind"] == "open_external_url"
     assert actions[0]["docs_url"] == "https://developers.openai.com/codex/auth"
-    assert status["details"]["diagnostics"]["auth_state"] == "unauthenticated"
+    assert_no_verbose_readiness_details(status)
 
 
 def test_readiness_status_returns_access_details_for_missing_entitlement(monkeypatch) -> None:  # noqa: ANN001
@@ -231,7 +206,7 @@ def test_readiness_status_returns_access_details_for_missing_entitlement(monkeyp
     assert actions[0]["id"] == "codex.access.docs"
     assert actions[0]["kind"] == "open_external_url"
     assert actions[0]["docs_url"] == "https://developers.openai.com/codex/pricing"
-    assert status["details"]["diagnostics"]["entitlement_state"] == "free"
+    assert_no_verbose_readiness_details(status)
 
 
 def test_readiness_status_returns_update_details_without_assuming_root_cause(monkeypatch) -> None:  # noqa: ANN001
@@ -255,14 +230,12 @@ def test_readiness_status_returns_update_details_without_assuming_root_cause(mon
     )
 
     actions = assert_generic_actions(status)
-    diagnostics = assert_locked_sanitized_diagnostics(status)
     assert status["label_hint"] == "Update Codex"
     assert actions[0]["id"] == "codex.update.docs"
     assert actions[0]["kind"] == "open_external_url"
     assert actions[0]["label"] == "Open Codex changelog"
-    assert diagnostics["runtime_version"] == "9.9.9"
-    assert diagnostics["supported_versions"] == "0.122.0"
-    assert diagnostics["runtime_version_supported"] == "false"
+    assert status["evidence"]["runtime_version"] == "9.9.9"
+    assert_no_verbose_readiness_details(status)
 
 
 def test_readiness_status_returns_disabled_unsupported_platform_details(monkeypatch) -> None:  # noqa: ANN001
@@ -280,7 +253,7 @@ def test_readiness_status_returns_disabled_unsupported_platform_details(monkeypa
     actions = assert_generic_actions(status)
     assert status["label_hint"] == "Unsupported"
     assert actions == []
-    assert status["details"]["diagnostics"]["platform_supported"] == "false"
+    assert_no_verbose_readiness_details(status)
 
 
 def test_readiness_status_reports_windows_x86_64_as_experimental_and_sanitized(monkeypatch) -> None:  # noqa: ANN001
@@ -302,11 +275,8 @@ def test_readiness_status_reports_windows_x86_64_as_experimental_and_sanitized(m
         monkeypatch,
     )
 
-    diagnostics = assert_locked_sanitized_diagnostics(status)
-    assert diagnostics["platform_key"] == "windows/x86_64"
-    assert diagnostics["platform_supported"] == "true"
-    assert diagnostics["platform_support_state"] == "experimental"
-    assert diagnostics["diagnostic_status"] == "ready"
+    assert status["evidence"]["platform"] == "windows/x86_64"
+    assert_no_verbose_readiness_details(status)
 
 
 def test_readiness_status_keeps_windows_arm64_unsupported(monkeypatch) -> None:  # noqa: ANN001
@@ -321,11 +291,9 @@ def test_readiness_status_keeps_windows_arm64_unsupported(monkeypatch) -> None: 
         monkeypatch,
     )
 
-    diagnostics = assert_locked_sanitized_diagnostics(status)
     assert status["label_hint"] == "Unsupported"
-    assert diagnostics["platform_key"] == "windows/arm64"
-    assert diagnostics["platform_supported"] == "false"
-    assert diagnostics["platform_support_state"] == "unsupported"
+    assert status["evidence"]["platform"] == "windows/arm64"
+    assert_no_verbose_readiness_details(status)
 
 
 def test_readiness_status_returns_ready_details_without_mutation(monkeypatch) -> None:  # noqa: ANN001
@@ -347,11 +315,10 @@ def test_readiness_status_returns_ready_details_without_mutation(monkeypatch) ->
     actions = assert_generic_actions(status)
     assert status["label_hint"] == "Ready"
     assert actions[0]["kind"] == "refresh_readiness"
-    assert "never starts generation" in status["details"]["summary"]
-    assert status["details"]["diagnostics"]["diagnostic_status"] == "ready"
+    assert_no_verbose_readiness_details(status)
 
 
-def test_readiness_status_diagnostics_use_only_locked_keys_and_sanitized_values(monkeypatch) -> None:  # noqa: ANN001
+def test_readiness_status_omits_verbose_debug_details_and_sanitizes_values(monkeypatch) -> None:  # noqa: ANN001
     status = readiness_from(
         PreflightReport(
             ok=False,
@@ -372,24 +339,14 @@ def test_readiness_status_diagnostics_use_only_locked_keys_and_sanitized_values(
         monkeypatch,
     )
 
-    diagnostics = assert_locked_sanitized_diagnostics(status)
-    assert diagnostics == {
-        "runtime_source": "local-codex-command",
+    assert_no_verbose_readiness_details(status)
+    assert status["evidence"] == {
+        "source": "local-codex-command",
         "runtime_name": "codex",
         "runtime_version": "0.122.0",
-        "runtime_version_supported": "true",
-        "supported_versions": "0.122.0",
-        "platform_supported": "true",
-        "platform_support_state": "enabled",
-        "platform_key": "linux/x86_64",
         "auth_state": "unauthenticated",
         "entitlement_state": "unknown",
-        "extension_setup_state": "ready",
-        "extension_import_state": "ready",
-        "codex_app_server_state": "not_checked",
-        "readiness_source": "codex_extension_preflight",
-        "diagnostic_status": "blocked",
-        "last_checked_at": status["checked_at"],
+        "platform": "linux/x86_64",
     }
 
 
