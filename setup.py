@@ -37,10 +37,10 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parent
 
 
-def pip_executable(venv_dir: Path) -> Path:
+def venv_python_executable(venv_dir: Path) -> Path:
     if platform.system() == "Windows":
-        return venv_dir / "Scripts" / "pip.exe"
-    return venv_dir / "bin" / "pip"
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python"
 
 
 def parse_args(argv: list[str] | None = None) -> dict[str, Any]:
@@ -112,8 +112,8 @@ def create_venv(python_exe: str, ext_dir: Path) -> Path:
 
 
 def pip_install(venv_dir: Path, *args: str) -> None:
-    pip_exe = pip_executable(venv_dir)
-    subprocess.run([str(pip_exe), *args], check=True)
+    python_exe = venv_python_executable(venv_dir)
+    subprocess.run([str(python_exe), "-m", "pip", *args], check=True)
 
 
 def bootstrap_packaging_tools(venv_dir: Path) -> None:

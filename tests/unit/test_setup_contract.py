@@ -46,11 +46,32 @@ def test_resolve_codex_app_server_source_defaults_to_reviewed_pin(tmp_path):
     assert module.resolve_codex_app_server_source(payload) == module.DEFAULT_CODEX_APP_SERVER_SOURCE
 
 
-def test_pip_executable_uses_windows_virtualenv_scripts_path(monkeypatch):
+def test_venv_python_executable_uses_windows_virtualenv_scripts_path(monkeypatch):
     module = _load_setup_module()
     monkeypatch.setattr(module.platform, "system", lambda: "Windows")
 
-    assert module.pip_executable(Path("venv")) == Path("venv") / "Scripts" / "pip.exe"
+    assert module.venv_python_executable(Path("venv")) == Path("venv") / "Scripts" / "python.exe"
+
+
+def test_pip_install_invokes_python_module_to_allow_pip_self_upgrade(monkeypatch):
+    module = _load_setup_module()
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(module.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(module.subprocess, "run", lambda command, check: calls.append(list(command)))
+
+    module.pip_install(Path("venv"), "install", "--upgrade", "pip", "setuptools", "wheel")
+
+    assert calls == [[
+        str(Path("venv") / "Scripts" / "python.exe"),
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "pip",
+        "setuptools",
+        "wheel",
+    ]]
 
 
 def test_normalize_payload_rejects_missing_python_exe(tmp_path):
