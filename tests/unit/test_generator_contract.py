@@ -81,7 +81,7 @@ def test_generator_readiness_status_maps_preflight_machine_codes(monkeypatch) ->
 
     assert adapter.readiness_status()["label_hint"] == "Setup Codex"
     assert adapter.readiness_status()["label_hint"] == "Login"
-    assert adapter.readiness_status()["label_hint"] == "Update Codex"
+    assert adapter.readiness_status()["label_hint"] == "Update Extension"
     ready_status = adapter.readiness_status()
     assert ready_status["ok"] is True
     assert ready_status["machine_code"] == "ready"
@@ -209,7 +209,7 @@ def test_readiness_status_returns_access_details_for_missing_entitlement(monkeyp
     assert_no_verbose_readiness_details(status)
 
 
-def test_readiness_status_returns_update_details_without_assuming_root_cause(monkeypatch) -> None:  # noqa: ANN001
+def test_readiness_status_returns_extension_compatibility_guidance_without_codex_update_claim(monkeypatch) -> None:  # noqa: ANN001
     status = readiness_from(
         PreflightReport(
             ok=False,
@@ -230,10 +230,14 @@ def test_readiness_status_returns_update_details_without_assuming_root_cause(mon
     )
 
     actions = assert_generic_actions(status)
-    assert status["label_hint"] == "Update Codex"
-    assert actions[0]["id"] == "codex.update.docs"
+    assert status["label_hint"] == "Update Extension"
+    assert status["label_hint"] != "Update Codex"
+    assert actions[0]["id"] == "extension.compatibility.docs"
     assert actions[0]["kind"] == "open_external_url"
-    assert actions[0]["label"] == "Open Codex changelog"
+    assert actions[0]["label"] == "Open extension changelog"
+    assert actions[0]["label"] != "Open Codex changelog"
+    assert "modly-Codex-image-extension" in actions[0]["docs_url"]
+    assert "developers.openai.com/codex/changelog" not in actions[0]["docs_url"]
     assert status["evidence"]["runtime_version"] == "9.9.9"
     assert_no_verbose_readiness_details(status)
 

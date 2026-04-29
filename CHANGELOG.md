@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 - 2026-04-29
+
+### Fixed
+
+- Keeps the default Codex CLI compatibility policy as a minimum version gate (`>= 0.122.0`) so newer daily Codex versions such as `0.125.0` pass unless a strict exact allowlist is explicitly configured.
+- Changes unsupported-version readiness guidance to point users at extension/config compatibility instead of telling them to update Codex or opening the Codex changelog.
+
 ## 0.1.0 - 2026-04-24
 
 ### Highlights

@@ -18,7 +18,7 @@ This project is an independent integration experiment and is **not** affiliated 
 
 ## Current V1 support state
 
-- **Extension version**: `0.1.0`
+- **Extension version**: `0.1.1`
 - **Support state**: experimental
 - **Modly surface owner**: FastAPI model extension
 - **Bucket**: `model-managed-setup`
@@ -52,9 +52,10 @@ Before installing or using the extension, the host must already have:
 3. A local `codex` executable available on `PATH`.
 4. A local Codex session already authenticated with a supported ChatGPT entitlement.
 5. A Codex CLI runtime version that passes the extension preflight compatibility policy.
-   - Default V1 minimum: `>= 0.122.0`.
-   - Override the minimum only when deliberately validating another floor: `CODEX_MIN_SUPPORTED_VERSION=...`.
-   - Use strict exact allowlisting only for validation/debugging: `CODEX_SUPPORTED_VERSIONS=0.124.0,...`.
+    - Default V1 minimum: `>= 0.122.0`.
+    - Override the minimum only when deliberately validating another floor: `CODEX_MIN_SUPPORTED_VERSION=...`.
+    - Use strict exact allowlisting only for validation/debugging: `CODEX_SUPPORTED_VERSIONS=0.124.0,...`.
+    - If a newer Codex is blocked by `preflight/unsupported_version`, update this extension/configuration before assuming Codex itself needs an update.
 
 The extension setup installs `codex_app_server` from this pinned reviewed source unless explicitly overridden:
 

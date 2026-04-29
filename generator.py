@@ -39,7 +39,7 @@ from codex_backend.preflight import run_preflight
 CODEX_SETUP_DOCS_URL = "https://developers.openai.com/codex/cli"
 CODEX_AUTH_DOCS_URL = "https://developers.openai.com/codex/auth"
 CODEX_ACCESS_DOCS_URL = "https://developers.openai.com/codex/pricing"
-CODEX_UPDATE_DOCS_URL = "https://developers.openai.com/codex/changelog"
+EXTENSION_CHANGELOG_URL = "https://github.com/DrHepa/modly-Codex-image-extension/blob/main/CHANGELOG.md"
 
 
 def _resolve_workspace_root(explicit: str | Path | None = None) -> Path:
@@ -180,7 +180,7 @@ READINESS_LABELS = {
     PREFLIGHT_CODE_CODEX_MISSING: "Setup Codex",
     PREFLIGHT_CODE_NOT_AUTHENTICATED: "Login",
     PREFLIGHT_CODE_NO_ENTITLEMENT: "Login",
-    PREFLIGHT_CODE_UNSUPPORTED_VERSION: "Update Codex",
+    PREFLIGHT_CODE_UNSUPPORTED_VERSION: "Update Extension",
     PREFLIGHT_CODE_UNSUPPORTED_PLATFORM: "Unsupported",
 }
 
@@ -350,11 +350,11 @@ def _readiness_actions(machine_code: str) -> list[dict[str, Any]]:
     if machine_code == PREFLIGHT_CODE_UNSUPPORTED_VERSION:
         return [
             {
-                "id": "codex.update.docs",
+                "id": "extension.compatibility.docs",
                 "kind": "open_external_url",
-                "label": "Open Codex changelog",
+                "label": "Open extension changelog",
                 "safety": "manual",
-                "docs_url": CODEX_UPDATE_DOCS_URL,
+                "docs_url": EXTENSION_CHANGELOG_URL,
                 "refresh_after": "never",
             },
             dict(GENERIC_REFRESH_ACTION),
