@@ -62,6 +62,67 @@ def test_adapter_maps_prompt_plus_image_requests_to_image_to_image() -> None:
     ]
 
 
+def test_adapter_maps_reference_image_paths_to_image_payload() -> None:
+    recorded: list[tuple[str, dict[str, object]]] = []
+
+    def invoker(mode: str, payload: dict[str, object]) -> dict[str, str]:
+        recorded.append((mode, payload))
+        return {"saved_path": "/tmp/generated.png"}
+
+    adapter = CodexAdapter(invoker=invoker)
+    request = GenerateRequest(
+        prompt="edit with references",
+        output_target=Path("outputs/result.png"),
+        input_image_path=Path("/tmp/input.png"),
+        reference_image_paths=(Path("/tmp/ref-1.png"), Path("/tmp/ref-2.png")),
+        params={"strength": 0.4},
+    )
+
+    result = adapter.generate(request)
+
+    assert result.saved_path == Path("/tmp/generated.png")
+    assert recorded == [
+        (
+            IMAGE_TO_IMAGE_MODE,
+            {
+                "prompt": "edit with references",
+                "input_image_path": "/tmp/input.png",
+                "reference_image_paths": ["/tmp/ref-1.png", "/tmp/ref-2.png"],
+                "strength": 0.4,
+            },
+        )
+    ]
+
+
+def test_sdk_thread_inputs_attach_primary_then_references(tmp_path: Path) -> None:
+    class FakeModule:
+        class TextInput:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+        class LocalImageInput:
+            def __init__(self, path: str) -> None:
+                self.path = path
+
+    primary = tmp_path / "primary.png"
+    reference_a = tmp_path / "reference-a.png"
+    reference_b = tmp_path / "reference-b.png"
+    payload = {
+        "prompt": "edit with references",
+        "input_image_path": str(primary),
+        "reference_image_paths": [str(reference_a), str(reference_b)],
+        "strength": 0.4,
+    }
+
+    inputs = adapter_module._sdk_thread_inputs(FakeModule, IMAGE_TO_IMAGE_MODE, payload)
+
+    assert [type(item).__name__ for item in inputs] == ["TextInput", "LocalImageInput", "LocalImageInput", "LocalImageInput"]
+    assert "Use the first attached local image as the source input." in inputs[0].value
+    assert "Use the 2 additional attached reference image(s) for visual context." in inputs[0].value
+    assert "reference_image_paths" not in inputs[0].value
+    assert [item.path for item in inputs[1:]] == [str(primary.resolve()), str(reference_a.resolve()), str(reference_b.resolve())]
+
+
 def test_normalize_result_returns_no_output_code_when_saved_path_is_missing() -> None:
     result = normalize_result({"output": {}, "media_type": "image"})
 

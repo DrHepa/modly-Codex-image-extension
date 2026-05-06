@@ -4,6 +4,7 @@ from pathlib import Path
 
 import generator as generator_module
 from codex_backend.contracts import (
+    IMAGE_TO_IMAGE_MODE,
     PREFLIGHT_CODE_CODEX_MISSING,
     PREFLIGHT_CODE_NOT_AUTHENTICATED,
     PREFLIGHT_CODE_NO_ENTITLEMENT,
@@ -46,6 +47,24 @@ def assert_no_verbose_readiness_details(status: dict[str, object]) -> None:
 
 def test_generator_class_keeps_node_specific_schema_on_runner_start() -> None:
     assert generator_module.CodexImageGenerator.params_schema() == []
+
+
+def test_reference_only_request_resolves_image_to_image_mode(tmp_path: Path) -> None:
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(b"ref")
+
+    request = generator_module.parse_generate_request(
+        {
+            "prompt": "use this reference",
+            "mode": IMAGE_TO_IMAGE_MODE,
+            "output_target": "images/final.png",
+            "referenceImagePaths": str(reference_path),
+        }
+    )
+
+    assert request.mode == IMAGE_TO_IMAGE_MODE
+    assert request.input_image_path is None
+    assert request.reference_image_paths == (reference_path.resolve(),)
 
 
 def test_generator_readiness_status_maps_preflight_machine_codes(monkeypatch) -> None:  # noqa: ANN001

@@ -100,6 +100,45 @@ def test_generate_prompt_plus_image_returns_persisted_absolute_path(tmp_path: Pa
     assert request.input_image_path.read_bytes() == b"png"
 
 
+def test_generate_stages_reference_images_and_sanitizes_raw_image_params(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_output = tmp_path / "source.png"
+    runtime_output.write_bytes(b"png")
+    reference_path = tmp_path / "reference.png"
+    reference_path.write_bytes(b"ref-path")
+    adapter = RecordingAdapter(CodexResult(saved_path=runtime_output))
+
+    output_path = generate(
+        {
+            "prompt": "edit with references",
+            "output_target": "images/final.png",
+            "input_image": {"base64": "cHJpbWFyeQ==", "media_type": "image/png"},
+            "params": {
+                "strength": 0.5,
+                "reference_images": [
+                    str(reference_path),
+                    {"data": "data:image/png;base64,cmVmLWRhdGE=", "media_type": "image/png"},
+                ],
+            },
+        },
+        workspace_root=workspace_root,
+        preflight_runner=passing_preflight,
+        adapter=adapter,
+    )
+
+    assert output_path == str(workspace_root / "images" / "final.png")
+    request = adapter.requests[0]
+    assert request.mode == "image-to-image"
+    assert request.input_image_path is not None
+    assert request.input_image_path.read_bytes() == b"primary"
+    assert len(request.reference_image_paths) == 2
+    assert request.reference_image_paths[0] == reference_path.resolve()
+    assert request.reference_image_paths[1].exists()
+    assert request.reference_image_paths[1].read_bytes() == b"ref-data"
+    assert request.params == {"strength": 0.5}
+
+
 def test_generate_fails_fast_when_preflight_is_blocked(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

@@ -139,7 +139,7 @@ def _build_instruction_text(mode: str, payload: Mapping[str, Any]) -> str:
     prompt = str(payload.get("prompt", "")).strip()
     extra_lines = []
     for key, value in payload.items():
-        if key in {"prompt", "input_image_path", "codex_bin"} or value is None:
+        if key in {"prompt", "input_image_path", "reference_image_paths", "codex_bin"} or value is None:
             continue
         extra_lines.append(f"- {key}: {_stringify_param_value(value)}")
 
@@ -154,7 +154,15 @@ def _build_instruction_text(mode: str, payload: Mapping[str, Any]) -> str:
         f"Prompt: {prompt}",
     ]
     if payload.get("input_image_path") is not None:
-        lines.append("Use the attached local reference image as the source input.")
+        lines.append("Use the first attached local image as the source input.")
+    reference_image_paths = payload.get("reference_image_paths")
+    reference_count = (
+        len(reference_image_paths)
+        if isinstance(reference_image_paths, Sequence) and not isinstance(reference_image_paths, (str, bytes, bytearray))
+        else 0
+    )
+    if reference_count:
+        lines.append(f"Use the {reference_count} additional attached reference image(s) for visual context.")
     if extra_lines:
         lines.append("Requested generation hints:")
         lines.extend(extra_lines)
@@ -166,6 +174,14 @@ def _sdk_thread_inputs(module: Any, mode: str, payload: Mapping[str, Any]) -> li
     input_image_path = payload.get("input_image_path")
     if mode == IMAGE_TO_IMAGE_MODE and input_image_path is not None:
         inputs.append(module.LocalImageInput(str(Path(str(input_image_path)).expanduser().resolve())))
+    reference_image_paths = payload.get("reference_image_paths")
+    if (
+        mode == IMAGE_TO_IMAGE_MODE
+        and isinstance(reference_image_paths, Sequence)
+        and not isinstance(reference_image_paths, (str, bytes, bytearray))
+    ):
+        for reference_image_path in reference_image_paths:
+            inputs.append(module.LocalImageInput(str(Path(str(reference_image_path)).expanduser().resolve())))
     return inputs
 
 
@@ -378,23 +394,28 @@ class CodexAdapter:
     def image_to_image(
         self,
         prompt: str,
-        input_image_path: str | Path,
+        input_image_path: str | Path | None,
         *,
+        reference_image_paths: Sequence[str | Path] = (),
         params: Mapping[str, Any] | None = None,
     ) -> CodexResult:
         payload = {
             "prompt": prompt,
-            "input_image_path": str(input_image_path),
-            **dict(params or {}),
         }
+        if input_image_path is not None:
+            payload["input_image_path"] = str(input_image_path)
+        if reference_image_paths:
+            payload["reference_image_paths"] = [str(path) for path in reference_image_paths]
+        payload.update(dict(params or {}))
         raw = self._invoker(IMAGE_TO_IMAGE_MODE, payload)
         return self._normalize_with_runtime_evidence(raw)
 
     def generate(self, request: GenerateRequest) -> CodexResult:
-        if request.mode == IMAGE_TO_IMAGE_MODE and request.input_image_path is not None:
+        if request.mode == IMAGE_TO_IMAGE_MODE:
             return self.image_to_image(
                 request.prompt,
                 request.input_image_path,
+                reference_image_paths=request.reference_image_paths,
                 params=request.params,
             )
 

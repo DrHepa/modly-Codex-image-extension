@@ -78,11 +78,12 @@ class GenerateRequest:
     prompt: str
     output_target: Path
     input_image_path: Path | None = None
+    reference_image_paths: tuple[Path, ...] = ()
     params: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def mode(self) -> str:
-        return IMAGE_TO_IMAGE_MODE if self.input_image_path else TEXT_TO_IMAGE_MODE
+        return IMAGE_TO_IMAGE_MODE if self.input_image_path or self.reference_image_paths else TEXT_TO_IMAGE_MODE
 
 
 @dataclass(frozen=True, slots=True)

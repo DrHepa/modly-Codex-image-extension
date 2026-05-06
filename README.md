@@ -18,7 +18,7 @@ This project is an independent integration experiment and is **not** affiliated 
 
 ## Current V1 support state
 
-- **Extension version**: `0.1.1`
+- **Extension version**: `0.1.2`
 - **Support state**: experimental
 - **Modly surface owner**: FastAPI model extension
 - **Bucket**: `model-managed-setup`
@@ -147,6 +147,19 @@ Verified local generation evidence from the current host produced an absolute wo
 <modly-workspace>/Default/codex/text-to-image-<request-id>.png
 ```
 
+### Advanced reference image params
+
+The V1 manifest intentionally keeps the visible node UI compact. For planner or caller surfaces that can pass richer JSON params, image generation also accepts additional reference images through top-level payload keys or `params` keys named `input_images`, `inputImages`, `reference_images`, `referenceImages`, `reference_image_paths`, or `referenceImagePaths`.
+
+Each value may be a single item or a list. Supported item shapes are:
+
+- A local file path string.
+- A base64 string or `data:image/...;base64,...` data URI.
+- A mapping containing `path` or `input_image_path`.
+- A mapping containing `base64`, `data`, or `content`, plus optional `media_type` / `mime_type`.
+
+These extra images are attached to the Codex runtime after the primary source image and are treated as visual references. They do not change the single-output contract and are not a claim that Modly owns a native multi-image UI for this extension.
+
 ## Output path rules
 
 The extension accepts only **workspace-relative** output targets.
@@ -166,7 +179,7 @@ See `docs/decisions/v1-locks.md` for the branch-local `modly-private` image prev
 ### Supported modes
 
 - **Text-to-image**: prompt only.
-- **Image-to-image**: prompt plus one valid input image.
+- **Image-to-image**: prompt plus one valid input image, with optional advanced reference image params for callers that can pass richer JSON.
 
 ### Out of scope
 

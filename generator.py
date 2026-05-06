@@ -8,7 +8,7 @@ import os
 import sys
 import tempfile
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -40,6 +40,15 @@ CODEX_SETUP_DOCS_URL = "https://developers.openai.com/codex/cli"
 CODEX_AUTH_DOCS_URL = "https://developers.openai.com/codex/auth"
 CODEX_ACCESS_DOCS_URL = "https://developers.openai.com/codex/pricing"
 EXTENSION_CHANGELOG_URL = "https://github.com/DrHepa/modly-Codex-image-extension/blob/main/CHANGELOG.md"
+
+REFERENCE_IMAGE_KEYS = (
+    "input_images",
+    "inputImages",
+    "reference_images",
+    "referenceImages",
+    "reference_image_paths",
+    "referenceImagePaths",
+)
 
 
 def _resolve_workspace_root(explicit: str | Path | None = None) -> Path:
@@ -152,6 +161,36 @@ def _stage_input_image(raw_value: Any) -> Path | None:
         REQUEST_CODE_INVALID_INPUT_IMAGE,
         detail="Input image must be a file path or a base64-capable mapping payload.",
     )
+
+
+def _pick_reference_images(primary: Mapping[str, Any], fallback: Mapping[str, Any]) -> Any:
+    picked = _pick_first(primary, *REFERENCE_IMAGE_KEYS)
+    if picked is not None:
+        return picked
+    return _pick_first(fallback, *REFERENCE_IMAGE_KEYS)
+
+
+def _iter_image_items(raw_value: Any) -> tuple[Any, ...]:
+    if raw_value is None:
+        return ()
+    if isinstance(raw_value, (str, bytes, bytearray, Mapping)):
+        return (raw_value,)
+    if isinstance(raw_value, Sequence):
+        return tuple(raw_value)
+    return (raw_value,)
+
+
+def _stage_reference_images(raw_value: Any) -> tuple[Path, ...]:
+    staged: list[Path] = []
+    for item in _iter_image_items(raw_value):
+        staged_image = _stage_input_image(item)
+        if staged_image is not None:
+            staged.append(staged_image)
+    return tuple(staged)
+
+
+def _sanitize_generation_params(params: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in params.items() if key not in REFERENCE_IMAGE_KEYS}
 
 
 def _ensure_preflight_allowed(report: Any) -> None:
@@ -383,15 +422,17 @@ def parse_generate_request(payload: Mapping[str, Any]) -> GenerateRequest:
         raw_input_image = _pick_first(normalized_params, "input_image", "input_image_path", "image")
 
     input_image_path = _stage_input_image(raw_input_image)
+    reference_image_paths = _stage_reference_images(_pick_reference_images(payload, normalized_params))
     requested_mode = _pick_first(payload, "mode") or _pick_first(normalized_params, "mode")
-    if requested_mode == "image-to-image" and input_image_path is None:
+    if requested_mode == "image-to-image" and input_image_path is None and not reference_image_paths:
         raise build_error(REQUEST_CODE_MISSING_INPUT_IMAGE)
 
     return GenerateRequest(
         prompt=prompt,
         output_target=output_target,
         input_image_path=input_image_path,
-        params=dict(normalized_params),
+        reference_image_paths=reference_image_paths,
+        params=_sanitize_generation_params(normalized_params),
     )
 
 

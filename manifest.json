@@ -2,7 +2,7 @@
   "id": "modly-codex-image-extension",
   "name": "Codex Local Image Model",
   "description": "Experimental local Codex image model extension for text-to-image and image-to-image workflows.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "model",
   "author": "DrHepa",
   "generator_class": "CodexImageGenerator",

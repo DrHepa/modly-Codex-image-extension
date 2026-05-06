@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2 - 2026-05-06
+
+### Added
+
+- Adds advanced multi-reference-image request params (`input_images` / `reference_images` aliases) while keeping the visible Modly node UI compact and preserving single-output generation.
+
 ## 0.1.1 - 2026-04-29
 
 ### Fixed
