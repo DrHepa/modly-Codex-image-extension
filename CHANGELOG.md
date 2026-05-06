@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.3 - 2026-05-06
+
+### Fixed
+
+- Treats Modly workflow `left_image_path`, `back_image_path`, and `right_image_path` params as side reference images in deterministic left/back/right order after explicit reference lists.
+- Removes named side-image path params before Codex instruction construction so raw local paths are not echoed as text hints.
+
+### Added
+
+- Declares optional image-to-image `front`, `left`, `back`, and `right` manifest inputs while keeping image path params out of the visible params schema.
+- Uses neutral user-facing labels for those workflow inputs (`Primary image`, `Image 2`, `Image 3`, `Image 4`) while preserving compatible internal routing handles.
+
 ## 0.1.2 - 2026-05-06
 
 ### Added

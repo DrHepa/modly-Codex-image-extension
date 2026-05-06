@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import codex_backend.adapter as adapter_module
+import generator as generator_module
 from codex_backend.adapter import CodexAdapter, normalize_result
 from codex_backend.contracts import (
     IMAGE_TO_IMAGE_MODE,
@@ -121,6 +122,63 @@ def test_sdk_thread_inputs_attach_primary_then_references(tmp_path: Path) -> Non
     assert "Use the 2 additional attached reference image(s) for visual context." in inputs[0].value
     assert "reference_image_paths" not in inputs[0].value
     assert [item.path for item in inputs[1:]] == [str(primary.resolve()), str(reference_a.resolve()), str(reference_b.resolve())]
+
+
+def test_side_image_params_are_not_echoed_into_adapter_instructions(tmp_path: Path) -> None:
+    class FakeModule:
+        class TextInput:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+        class LocalImageInput:
+            def __init__(self, path: str) -> None:
+                self.path = path
+
+    primary = tmp_path / "front.png"
+    left = tmp_path / "left.png"
+    back = tmp_path / "back.png"
+    right = tmp_path / "right.png"
+    for path in (primary, left, back, right):
+        path.write_bytes(path.stem.encode("utf-8"))
+    recorded: list[tuple[str, dict[str, object]]] = []
+
+    def invoker(mode: str, payload: dict[str, object]) -> dict[str, str]:
+        recorded.append((mode, payload))
+        return {"saved_path": "/tmp/generated.png"}
+
+    request = generator_module.parse_generate_request(
+        {
+            "prompt": "edit using named side views",
+            "output_target": "outputs/result.png",
+            "input_image_path": str(primary),
+            "params": {
+                "left_image_path": str(left),
+                "back_image_path": str(back),
+                "right_image_path": str(right),
+                "strength": 0.4,
+            },
+        }
+    )
+
+    CodexAdapter(invoker=invoker).generate(request)
+
+    mode, payload = recorded[0]
+    inputs = adapter_module._sdk_thread_inputs(FakeModule, mode, payload)
+    instruction_text = inputs[0].value
+
+    assert {"left_image_path", "back_image_path", "right_image_path"}.isdisjoint(payload)
+    assert "left_image_path" not in instruction_text
+    assert "back_image_path" not in instruction_text
+    assert "right_image_path" not in instruction_text
+    assert str(left) not in instruction_text
+    assert str(back) not in instruction_text
+    assert str(right) not in instruction_text
+    assert [item.path for item in inputs[1:]] == [
+        str(primary.resolve()),
+        str(left.resolve()),
+        str(back.resolve()),
+        str(right.resolve()),
+    ]
 
 
 def test_normalize_result_returns_no_output_code_when_saved_path_is_missing() -> None:

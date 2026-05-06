@@ -67,6 +67,38 @@ def test_reference_only_request_resolves_image_to_image_mode(tmp_path: Path) -> 
     assert request.reference_image_paths == (reference_path.resolve(),)
 
 
+def test_side_image_params_stage_as_references_after_explicit_refs(tmp_path: Path) -> None:
+    explicit_path = tmp_path / "explicit.png"
+    left_path = tmp_path / "left.png"
+    back_path = tmp_path / "back.png"
+    right_path = tmp_path / "right.png"
+    for path in (explicit_path, left_path, back_path, right_path):
+        path.write_bytes(path.stem.encode("utf-8"))
+
+    request = generator_module.parse_generate_request(
+        {
+            "prompt": "combine side views",
+            "mode": IMAGE_TO_IMAGE_MODE,
+            "output_target": "images/final.png",
+            "params": {
+                "reference_images": str(explicit_path),
+                "left_image_path": str(left_path),
+                "back_image_path": str(back_path),
+                "right_image_path": str(right_path),
+                "strength": 0.5,
+            },
+        }
+    )
+
+    assert request.reference_image_paths == (
+        explicit_path.resolve(),
+        left_path.resolve(),
+        back_path.resolve(),
+        right_path.resolve(),
+    )
+    assert request.params == {"strength": 0.5}
+
+
 def test_generator_readiness_status_maps_preflight_machine_codes(monkeypatch) -> None:  # noqa: ANN001
     reports = iter(
         (

@@ -139,6 +139,44 @@ def test_generate_stages_reference_images_and_sanitizes_raw_image_params(tmp_pat
     assert request.params == {"strength": 0.5}
 
 
+def test_generate_stages_named_side_images_and_sanitizes_prompt_params(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    runtime_output = tmp_path / "source.png"
+    runtime_output.write_bytes(b"png")
+    left_path = tmp_path / "left.png"
+    back_path = tmp_path / "back.png"
+    right_path = tmp_path / "right.png"
+    for path in (left_path, back_path, right_path):
+        path.write_bytes(path.stem.encode("utf-8"))
+    adapter = RecordingAdapter(CodexResult(saved_path=runtime_output))
+
+    output_path = generate(
+        {
+            "prompt": "edit from front with side references",
+            "output_target": "images/final.png",
+            "input_image": {"base64": "ZnJvbnQ=", "media_type": "image/png"},
+            "params": {
+                "left_image_path": str(left_path),
+                "back_image_path": str(back_path),
+                "right_image_path": str(right_path),
+                "background": "auto",
+            },
+        },
+        workspace_root=workspace_root,
+        preflight_runner=passing_preflight,
+        adapter=adapter,
+    )
+
+    assert output_path == str(workspace_root / "images" / "final.png")
+    request = adapter.requests[0]
+    assert request.mode == "image-to-image"
+    assert request.input_image_path is not None
+    assert request.input_image_path.read_bytes() == b"front"
+    assert request.reference_image_paths == (left_path.resolve(), back_path.resolve(), right_path.resolve())
+    assert request.params == {"background": "auto"}
+
+
 def test_generate_fails_fast_when_preflight_is_blocked(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

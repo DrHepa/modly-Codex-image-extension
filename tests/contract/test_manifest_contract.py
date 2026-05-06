@@ -71,3 +71,17 @@ def test_manifest_exposes_ui_facing_nodes_with_params_schema() -> None:
     assert node_map[IMAGE_TO_IMAGE_NODE_ID]["params_schema"]
     assert any(param["id"] == "prompt" for param in node_map[TEXT_TO_IMAGE_NODE_ID]["params_schema"])
     assert any(param["id"] == "strength" for param in node_map[IMAGE_TO_IMAGE_NODE_ID]["params_schema"])
+
+
+def test_image_to_image_declares_named_inputs_without_visible_path_params() -> None:
+    manifest = load_manifest()
+    image_node = {node["id"]: node for node in manifest["nodes"]}[IMAGE_TO_IMAGE_NODE_ID]
+
+    assert image_node["inputs"] == [
+        {"name": "front", "label": "Primary image", "type": "image", "required": True},
+        {"name": "left", "label": "Image 2", "type": "image", "required": False},
+        {"name": "back", "label": "Image 3", "type": "image", "required": False},
+        {"name": "right", "label": "Image 4", "type": "image", "required": False},
+    ]
+    visible_param_ids = {param["id"] for param in image_node["params_schema"]}
+    assert {"front_image_path", "left_image_path", "back_image_path", "right_image_path"}.isdisjoint(visible_param_ids)

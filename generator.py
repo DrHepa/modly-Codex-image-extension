@@ -49,6 +49,11 @@ REFERENCE_IMAGE_KEYS = (
     "reference_image_paths",
     "referenceImagePaths",
 )
+SIDE_REFERENCE_IMAGE_KEYS = (
+    "left_image_path",
+    "back_image_path",
+    "right_image_path",
+)
 
 
 def _resolve_workspace_root(explicit: str | Path | None = None) -> Path:
@@ -170,6 +175,22 @@ def _pick_reference_images(primary: Mapping[str, Any], fallback: Mapping[str, An
     return _pick_first(fallback, *REFERENCE_IMAGE_KEYS)
 
 
+def _reference_image_sources(primary: Mapping[str, Any], fallback: Mapping[str, Any]) -> tuple[Any, ...]:
+    sources: list[Any] = []
+    explicit_references = _pick_reference_images(primary, fallback)
+    if explicit_references is not None:
+        sources.append(explicit_references)
+
+    for side_key in SIDE_REFERENCE_IMAGE_KEYS:
+        side_reference = _pick_first(primary, side_key)
+        if side_reference is None:
+            side_reference = _pick_first(fallback, side_key)
+        if side_reference is not None:
+            sources.append(side_reference)
+
+    return tuple(sources)
+
+
 def _iter_image_items(raw_value: Any) -> tuple[Any, ...]:
     if raw_value is None:
         return ()
@@ -189,8 +210,16 @@ def _stage_reference_images(raw_value: Any) -> tuple[Path, ...]:
     return tuple(staged)
 
 
+def _stage_reference_image_sources(raw_values: Sequence[Any]) -> tuple[Path, ...]:
+    staged: list[Path] = []
+    for raw_value in raw_values:
+        staged.extend(_stage_reference_images(raw_value))
+    return tuple(staged)
+
+
 def _sanitize_generation_params(params: Mapping[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in params.items() if key not in REFERENCE_IMAGE_KEYS}
+    image_param_keys = set(REFERENCE_IMAGE_KEYS) | set(SIDE_REFERENCE_IMAGE_KEYS)
+    return {key: value for key, value in params.items() if key not in image_param_keys}
 
 
 def _ensure_preflight_allowed(report: Any) -> None:
@@ -422,7 +451,7 @@ def parse_generate_request(payload: Mapping[str, Any]) -> GenerateRequest:
         raw_input_image = _pick_first(normalized_params, "input_image", "input_image_path", "image")
 
     input_image_path = _stage_input_image(raw_input_image)
-    reference_image_paths = _stage_reference_images(_pick_reference_images(payload, normalized_params))
+    reference_image_paths = _stage_reference_image_sources(_reference_image_sources(payload, normalized_params))
     requested_mode = _pick_first(payload, "mode") or _pick_first(normalized_params, "mode")
     if requested_mode == "image-to-image" and input_image_path is None and not reference_image_paths:
         raise build_error(REQUEST_CODE_MISSING_INPUT_IMAGE)

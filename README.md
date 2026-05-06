@@ -5,7 +5,7 @@ Experimental Modly model extension that lets Modly generate local images through
 In user terms: after the extension is installed in Modly and Codex is already working on the host, Modly can expose a **Codex Local Image Model** for:
 
 - **Text-to-image**: enter a prompt and receive one saved local image.
-- **Image-to-image**: provide a source image plus a prompt and receive one saved local image.
+- **Image-to-image**: provide one primary image plus a prompt and receive one saved local image, with optional generic reference images when Modly routes named image inputs.
 
 The extension returns a single absolute local image path. On the currently validated local Modly host path, that image is intended to be preview-compatible through Modly's image output handling.
 
@@ -18,7 +18,7 @@ This project is an independent integration experiment and is **not** affiliated 
 
 ## Current V1 support state
 
-- **Extension version**: `0.1.2`
+- **Extension version**: `0.1.3`
 - **Support state**: experimental
 - **Modly surface owner**: FastAPI model extension
 - **Bucket**: `model-managed-setup`
@@ -129,7 +129,7 @@ From Modly's generate/workflow surface:
 
 1. Select **Codex Local Image Model**.
 2. For text-to-image, provide a non-empty prompt.
-3. For image-to-image, provide one source image and a non-empty prompt.
+3. For image-to-image, provide one **Primary image** and a non-empty prompt. When Modly exposes the named workflow inputs, optional reference slots are displayed neutrally as **Image 2**, **Image 3**, and **Image 4**.
 4. Optionally pass supported parameters exposed by the node metadata, such as `size`, `quality`, `background`, or `strength`.
 5. Run generation.
 
@@ -150,6 +150,8 @@ Verified local generation evidence from the current host produced an absolute wo
 ### Advanced reference image params
 
 The V1 manifest intentionally keeps the visible node UI compact. For planner or caller surfaces that can pass richer JSON params, image generation also accepts additional reference images through top-level payload keys or `params` keys named `input_images`, `inputImages`, `reference_images`, `referenceImages`, `reference_image_paths`, or `referenceImagePaths`.
+
+Modly workflow named inputs keep compatible routing handles named `front`, `left`, `back`, and `right`, but the manifest labels those slots as **Primary image**, **Image 2**, **Image 3**, and **Image 4**. The non-primary handles are still translated to internal params as `left_image_path`, `back_image_path`, and `right_image_path` for compatibility. These reference images are attached after any explicit reference-image list in deterministic handle order. The side-image path params are removed before prompt/instruction construction so raw local paths are not echoed into Codex text hints.
 
 Each value may be a single item or a list. Supported item shapes are:
 
@@ -179,7 +181,7 @@ See `docs/decisions/v1-locks.md` for the branch-local `modly-private` image prev
 ### Supported modes
 
 - **Text-to-image**: prompt only.
-- **Image-to-image**: prompt plus one valid input image, with optional advanced reference image params for callers that can pass richer JSON.
+- **Image-to-image**: prompt plus one valid primary input image, with optional advanced reference image params or Modly-routed generic reference images.
 
 ### Out of scope
 
