@@ -192,15 +192,21 @@ def _turn_status_value(turn: Any) -> str | None:
     return getattr(status, "value", str(status))
 
 
+def _turn_error_message(turn: Any) -> str | None:
+    error = getattr(turn, "error", None)
+    message = getattr(error, "message", None) if error is not None else None
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    return None
+
+
 def _raise_for_failed_turn(turn: Any) -> None:
     if _turn_status_value(turn) != "failed":
         return
 
-    error = getattr(turn, "error", None)
-    message = getattr(error, "message", None) if error is not None else None
     raise CodexExtensionError(
         RUNTIME_CODE_CALL_FAILED,
-        (message or "codex_app_server reported a failed turn.").strip(),
+        _turn_error_message(turn) or "codex_app_server reported a failed turn.",
     )
 
 
@@ -219,20 +225,41 @@ def _run_sdk_turn(module: Any, mode: str, payload: Mapping[str, Any]) -> Mapping
         thread = codex.thread_start()
         turn_handle = thread.turn(inputs)
         completed_turn = turn_handle.run()
-        _raise_for_failed_turn(completed_turn)
-        persisted = thread.read(include_turns=True)
-        persisted_turn = _find_turn(getattr(getattr(persisted, "thread", None), "turns", None), turn_handle.id)
-        persisted_items = list(getattr(persisted_turn, "items", None) or [])
+        try:
+            persisted = thread.read(include_turns=True)
+        except Exception:
+            _raise_for_failed_turn(completed_turn)
+            raise
+        persisted_turn = _find_turn(
+            getattr(getattr(persisted, "thread", None), "turns", None),
+            turn_handle.id,
+        )
+        persisted_items = list(
+            getattr(persisted_turn, "items", None) or getattr(completed_turn, "items", None) or [],
+        )
         server_info = getattr(codex.metadata, "serverInfo", None)
-        return {
+        turn_status = _turn_status_value(completed_turn)
+        turn_error = _turn_error_message(completed_turn)
+        recovered_after_failure = (
+            turn_status == "failed" and _extract_saved_path({"items": persisted_items}) is not None
+        )
+        if turn_status == "failed" and not recovered_after_failure:
+            _raise_for_failed_turn(completed_turn)
+
+        result = {
             "items": persisted_items,
             "turn_id": turn_handle.id,
-            "turn_status": _turn_status_value(completed_turn),
+            "turn_status": turn_status,
             "server_info": {
                 "name": getattr(server_info, "name", None),
                 "version": getattr(server_info, "version", None),
             },
         }
+        if turn_error:
+            result["turn_error"] = turn_error
+        if recovered_after_failure:
+            result["turn_recovered_after_failure"] = True
+        return result
 
 
 def _default_invoke(mode: str, payload: Mapping[str, Any]) -> Any:

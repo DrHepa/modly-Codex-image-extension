@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,8 +14,74 @@ from codex_backend.contracts import (
     RUNTIME_CODE_CALL_FAILED,
     RUNTIME_CODE_NO_OUTPUT,
     TEXT_TO_IMAGE_MODE,
+    CodexExtensionError,
     GenerateRequest,
 )
+
+
+def _fake_sdk_module(
+    *,
+    persisted_items: list[object],
+    turn_status: str = "failed",
+    error_message: str = "stream disconnected before completion",
+) -> SimpleNamespace:
+    class FakeTextInput:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+    class FakeLocalImageInput:
+        def __init__(self, path: str) -> None:
+            self.path = path
+
+    class FakeAppServerConfig:
+        def __init__(self, *, codex_bin: str, cwd: str) -> None:
+            self.codex_bin = codex_bin
+            self.cwd = cwd
+
+    class FakeTurnHandle:
+        id = "turn-1"
+
+        def run(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                status=SimpleNamespace(value=turn_status),
+                error=SimpleNamespace(message=error_message),
+            )
+
+    class FakeThread:
+        def turn(self, inputs: list[object]) -> FakeTurnHandle:
+            self.inputs = inputs
+            return FakeTurnHandle()
+
+        def read(self, *, include_turns: bool) -> SimpleNamespace:
+            assert include_turns is True
+            return SimpleNamespace(
+                thread=SimpleNamespace(
+                    turns=[SimpleNamespace(id="turn-1", items=persisted_items)],
+                ),
+            )
+
+    class FakeCodex:
+        def __init__(self, *, config: FakeAppServerConfig) -> None:
+            self.config = config
+            self.metadata = SimpleNamespace(
+                serverInfo=SimpleNamespace(name="fake-codex", version="0.1"),
+            )
+
+        def __enter__(self) -> FakeCodex:
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+            return False
+
+        def thread_start(self) -> FakeThread:
+            return FakeThread()
+
+    return SimpleNamespace(
+        Codex=FakeCodex,
+        AppServerConfig=FakeAppServerConfig,
+        TextInput=FakeTextInput,
+        LocalImageInput=FakeLocalImageInput,
+    )
 
 
 def test_adapter_maps_prompt_only_requests_to_text_to_image() -> None:
@@ -219,6 +286,36 @@ def test_normalize_result_extracts_saved_path_from_sdk_camel_case_mapping() -> N
 
     assert result.saved_path == Path("/tmp/generated-camel.png")
     assert result.machine_code is None
+
+
+def test_run_sdk_turn_recovers_saved_path_from_failed_persisted_turn() -> None:
+    module = _fake_sdk_module(persisted_items=[{"saved_path": "/tmp/generated-after-disconnect.png"}])
+
+    raw = adapter_module._run_sdk_turn(
+        module,
+        TEXT_TO_IMAGE_MODE,
+        {"prompt": "draw a fox", "codex_bin": "/tmp/codex"},
+    )
+    result = normalize_result(raw)
+
+    assert result.saved_path == Path("/tmp/generated-after-disconnect.png")
+    assert raw["turn_status"] == "failed"
+    assert raw["turn_error"] == "stream disconnected before completion"
+    assert raw["turn_recovered_after_failure"] is True
+
+
+def test_run_sdk_turn_raises_failed_turn_when_no_saved_path_was_persisted() -> None:
+    module = _fake_sdk_module(persisted_items=[])
+
+    with pytest.raises(CodexExtensionError) as exc_info:
+        adapter_module._run_sdk_turn(
+            module,
+            TEXT_TO_IMAGE_MODE,
+            {"prompt": "draw a fox", "codex_bin": "/tmp/codex"},
+        )
+
+    assert exc_info.value.machine_code == RUNTIME_CODE_CALL_FAILED
+    assert "stream disconnected before completion" in str(exc_info.value)
 
 
 def test_default_adapter_reports_missing_public_sdk_exports(monkeypatch) -> None:  # noqa: ANN001
