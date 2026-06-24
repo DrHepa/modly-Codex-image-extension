@@ -80,6 +80,7 @@ class GenerateRequest:
     input_image_path: Path | None = None
     reference_image_paths: tuple[Path, ...] = ()
     params: Mapping[str, Any] = field(default_factory=dict)
+    workspace_root: Path | None = None
 
     @property
     def mode(self) -> str:

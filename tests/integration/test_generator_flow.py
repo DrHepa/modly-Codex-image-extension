@@ -71,6 +71,25 @@ def test_generate_returns_persisted_absolute_path_on_success(tmp_path: Path) -> 
     assert adapter.calls == 1
 
 
+def test_generate_passes_workspace_root_and_output_target_to_adapter_request(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    source_path = tmp_path / "source.png"
+    source_path.write_bytes(b"png")
+    adapter = RecordingAdapter(CodexResult(saved_path=source_path))
+
+    generate(
+        {"prompt": "draw a fox", "output_target": "codex/text-to-image-fixed.png"},
+        workspace_root=workspace_root,
+        preflight_runner=passing_preflight,
+        adapter=adapter,
+    )
+
+    request = adapter.requests[0]
+    assert request.workspace_root == workspace_root.resolve()
+    assert request.output_target == Path("codex/text-to-image-fixed.png")
+
+
 def test_generate_prompt_plus_image_returns_persisted_absolute_path(tmp_path: Path) -> None:
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir()

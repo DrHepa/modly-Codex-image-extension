@@ -9,6 +9,7 @@ import sys
 import tempfile
 import uuid
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -475,6 +476,7 @@ def generate(
     request = parse_generate_request(payload)
     workspace = _resolve_workspace_root(workspace_root)
     validate_output_target_contract(workspace, request.output_target)
+    request = replace(request, workspace_root=workspace)
     report = preflight_runner()
     _ensure_preflight_allowed(report)
 

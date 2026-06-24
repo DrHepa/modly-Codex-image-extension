@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from codex_backend.contracts import CodexExtensionError, OUTPUT_CODE_INVALID_TARGET, OUTPUT_CODE_UNSUPPORTED_EXTENSION
+from codex_backend.contracts import (
+    CodexExtensionError,
+    OUTPUT_CODE_INVALID_TARGET,
+    OUTPUT_CODE_PERSIST_FAILED,
+    OUTPUT_CODE_UNSUPPORTED_EXTENSION,
+)
 from codex_backend.persistence import _resolve_destination_path, _validate_workspace_relative_target, persist_result_image, validate_output_target_contract
 
 
@@ -104,6 +109,19 @@ def test_persist_result_image_returns_previewable_absolute_path_for_file_target(
     assert resolved.final_abs_path.read_bytes() == b"webp"
 
 
+def test_persist_result_image_accepts_source_already_at_requested_target(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    source_path = workspace_root / "codex" / "text-to-image-direct.png"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_bytes(b"direct")
+
+    resolved = persist_result_image(source_path, workspace_root, "codex/text-to-image-direct.png")
+
+    assert resolved.final_abs_path == source_path
+    assert resolved.workspace_rel_path == Path("codex/text-to-image-direct.png")
+    assert resolved.final_abs_path.read_bytes() == b"direct"
+
+
 @pytest.mark.parametrize(
     ("source_name", "raw_target"),
     [("generated.png", "images/final.gif"), ("generated.gif", "images/final.png")],
@@ -122,3 +140,14 @@ def test_persist_result_image_rejects_non_previewable_extensions(
         persist_result_image(source_path, workspace_root, raw_target)
 
     assert getattr(exc_info.value, "machine_code", None) == OUTPUT_CODE_UNSUPPORTED_EXTENSION
+
+
+def test_persist_result_image_wraps_bogus_long_source_path_as_controlled_error(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir()
+    bogus_base64_like_source = "iVBORw0KGgo" * 500
+
+    with pytest.raises(CodexExtensionError) as exc_info:
+        persist_result_image(bogus_base64_like_source, workspace_root, "images/final.png")
+
+    assert getattr(exc_info.value, "machine_code", None) == OUTPUT_CODE_PERSIST_FAILED

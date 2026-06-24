@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,7 +26,10 @@ def _fake_sdk_module(
     persisted_items: list[object],
     turn_status: str = "failed",
     error_message: str = "stream disconnected before completion",
+    on_run: Callable[[], None] | None = None,
 ) -> SimpleNamespace:
+    recorded_configs = []
+
     class FakeTextInput:
         def __init__(self, value: str) -> None:
             self.value = value
@@ -42,6 +47,8 @@ def _fake_sdk_module(
         id = "turn-1"
 
         def run(self) -> SimpleNamespace:
+            if on_run is not None:
+                on_run()
             return SimpleNamespace(
                 status=SimpleNamespace(value=turn_status),
                 error=SimpleNamespace(message=error_message),
@@ -63,6 +70,7 @@ def _fake_sdk_module(
     class FakeCodex:
         def __init__(self, *, config: FakeAppServerConfig) -> None:
             self.config = config
+            recorded_configs.append(config)
             self.metadata = SimpleNamespace(
                 serverInfo=SimpleNamespace(name="fake-codex", version="0.1"),
             )
@@ -81,6 +89,7 @@ def _fake_sdk_module(
         AppServerConfig=FakeAppServerConfig,
         TextInput=FakeTextInput,
         LocalImageInput=FakeLocalImageInput,
+        recorded_configs=recorded_configs,
     )
 
 
@@ -97,7 +106,16 @@ def test_adapter_maps_prompt_only_requests_to_text_to_image() -> None:
     result = adapter.generate(request)
 
     assert result.saved_path == Path("/tmp/generated.png")
-    assert recorded == [(TEXT_TO_IMAGE_MODE, {"prompt": "draw a fox", "style": "comic"})]
+    assert recorded == [
+        (
+            TEXT_TO_IMAGE_MODE,
+            {
+                "prompt": "draw a fox",
+                "style": "comic",
+                "_codex_output_target": "outputs/result.png",
+            },
+        )
+    ]
 
 
 def test_adapter_maps_prompt_plus_image_requests_to_image_to_image() -> None:
@@ -125,6 +143,7 @@ def test_adapter_maps_prompt_plus_image_requests_to_image_to_image() -> None:
                 "prompt": "edit this",
                 "input_image_path": "/tmp/input.png",
                 "strength": 0.4,
+                "_codex_output_target": "outputs/result.png",
             },
         )
     ]
@@ -157,6 +176,7 @@ def test_adapter_maps_reference_image_paths_to_image_payload() -> None:
                 "input_image_path": "/tmp/input.png",
                 "reference_image_paths": ["/tmp/ref-1.png", "/tmp/ref-2.png"],
                 "strength": 0.4,
+                "_codex_output_target": "outputs/result.png",
             },
         )
     ]
@@ -189,6 +209,40 @@ def test_sdk_thread_inputs_attach_primary_then_references(tmp_path: Path) -> Non
     assert "Use the 2 additional attached reference image(s) for visual context." in inputs[0].value
     assert "reference_image_paths" not in inputs[0].value
     assert [item.path for item in inputs[1:]] == [str(primary.resolve()), str(reference_a.resolve()), str(reference_b.resolve())]
+
+
+def test_sdk_thread_inputs_keep_internal_output_metadata_out_of_prompt_hints(tmp_path: Path) -> None:
+    class FakeModule:
+        class TextInput:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+        class LocalImageInput:
+            def __init__(self, path: str) -> None:
+                self.path = path
+
+    payload = {
+        "prompt": "draw a fox",
+        "_codex_output_target": "codex/text-to-image-abc.png",
+        "_codex_workspace_root": str(tmp_path),
+        "cwd": "/wrong/place",
+        "workspace_root": "/wrong/workspace",
+        "output_target": "wrong.png",
+        "style": "comic",
+    }
+
+    inputs = adapter_module._sdk_thread_inputs(FakeModule, TEXT_TO_IMAGE_MODE, payload)
+    instruction_text = inputs[0].value
+
+    assert "Save the final image to a local file so the app-server returns a saved path." in instruction_text
+    assert "Save the final image exactly to this workspace-relative path" not in instruction_text
+    assert "- style: comic" in instruction_text
+    assert "_codex_workspace_root" not in instruction_text
+    assert "_codex_output_target" not in instruction_text
+    assert "workspace_root" not in instruction_text
+    assert "cwd" not in instruction_text
+    assert "codex/text-to-image-abc.png" not in instruction_text
+    assert "wrong.png" not in instruction_text
 
 
 def test_side_image_params_are_not_echoed_into_adapter_instructions(tmp_path: Path) -> None:
@@ -288,6 +342,31 @@ def test_normalize_result_extracts_saved_path_from_sdk_camel_case_mapping() -> N
     assert result.machine_code is None
 
 
+def test_normalize_result_decodes_nested_base64_result_without_treating_it_as_a_path() -> None:
+    image_bytes = b"\x89PNG\r\n\x1a\npreview"
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+
+    result = normalize_result({"items": [{"type": "imageGeneration", "result": encoded}]})
+
+    assert result.saved_path is not None
+    assert result.saved_path.suffix == ".png"
+    assert result.saved_path.is_file()
+    assert result.saved_path.read_bytes() == image_bytes
+    assert result.machine_code is None
+
+
+def test_normalize_result_decodes_data_uri_result_without_treating_it_as_a_path() -> None:
+    image_bytes = b"\x89PNG\r\n\x1a\ndata-uri"
+    encoded = base64.b64encode(image_bytes).decode("ascii")
+
+    result = normalize_result({"result": f"data:image/png;base64,{encoded}"})
+
+    assert result.saved_path is not None
+    assert result.saved_path.suffix == ".png"
+    assert result.saved_path.read_bytes() == image_bytes
+    assert result.media_type == "image/png"
+
+
 def test_run_sdk_turn_recovers_saved_path_from_failed_persisted_turn() -> None:
     module = _fake_sdk_module(persisted_items=[{"saved_path": "/tmp/generated-after-disconnect.png"}])
 
@@ -302,6 +381,70 @@ def test_run_sdk_turn_recovers_saved_path_from_failed_persisted_turn() -> None:
     assert raw["turn_status"] == "failed"
     assert raw["turn_error"] == "stream disconnected before completion"
     assert raw["turn_recovered_after_failure"] is True
+
+
+def test_run_sdk_turn_uses_process_cwd_instead_of_workspace_root(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    actual_cwd = tmp_path / "actual-cwd"
+    workspace_root = tmp_path / "workspace"
+    actual_cwd.mkdir()
+    workspace_root.mkdir()
+    module = _fake_sdk_module(persisted_items=[{"saved_path": "/tmp/generated.png"}], turn_status="completed")
+    monkeypatch.chdir(actual_cwd)
+
+    adapter_module._run_sdk_turn(
+        module,
+        TEXT_TO_IMAGE_MODE,
+        {
+            "prompt": "draw a fox",
+            "codex_bin": "/tmp/codex",
+            "_codex_workspace_root": str(workspace_root),
+            "_codex_output_target": "codex/text-to-image-result.png",
+        },
+    )
+
+    assert module.recorded_configs[0].cwd == str(actual_cwd.resolve())
+
+
+def test_run_sdk_turn_uses_new_top_level_codex_output_under_actual_cwd_as_fallback(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    actual_cwd = tmp_path / "actual-cwd"
+    workspace_root = tmp_path / "workspace"
+    actual_cwd.mkdir()
+    workspace_root.mkdir()
+    output_dir = actual_cwd / ".codex-output"
+    nested_dir = output_dir / "imagegen"
+    nested_dir.mkdir(parents=True)
+    (output_dir / "old.png").write_bytes(b"old")
+    workspace_output_dir = workspace_root / ".codex-output"
+    workspace_output_dir.mkdir()
+    (workspace_output_dir / "wrong-workspace-output.png").write_bytes(b"wrong")
+
+    def write_codex_outputs() -> None:
+        (nested_dir / "imagegen-output.png").write_bytes(b"nested")
+        (output_dir / "final.png").write_bytes(b"top-level")
+
+    module = _fake_sdk_module(
+        persisted_items=[],
+        turn_status="completed",
+        on_run=write_codex_outputs,
+    )
+    monkeypatch.chdir(actual_cwd)
+
+    raw = adapter_module._run_sdk_turn(
+        module,
+        TEXT_TO_IMAGE_MODE,
+        {
+            "prompt": "draw a fox",
+            "codex_bin": "/tmp/codex",
+            "_codex_workspace_root": str(workspace_root),
+            "_codex_output_target": "codex/text-to-image-result.png",
+        },
+    )
+
+    assert raw["saved_path"] == str((output_dir / "final.png").resolve())
+    assert raw["codex_output_fallback"] is True
 
 
 def test_run_sdk_turn_raises_failed_turn_when_no_saved_path_was_persisted() -> None:

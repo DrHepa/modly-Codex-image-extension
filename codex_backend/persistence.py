@@ -107,8 +107,23 @@ def persist_result_image(
     *,
     filename_factory: Callable[[Path], str] | None = None,
 ) -> ResolvedOutput:
-    source = Path(source_path).expanduser().resolve()
-    if not source.is_file():
+    try:
+        source = Path(source_path).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise CodexExtensionError(
+            OUTPUT_CODE_PERSIST_FAILED,
+            "Generated image source is not a valid filesystem path.",
+        ) from exc
+
+    try:
+        source_is_file = source.is_file()
+    except OSError as exc:
+        raise CodexExtensionError(
+            OUTPUT_CODE_PERSIST_FAILED,
+            "Generated image source is not a readable filesystem path.",
+        ) from exc
+
+    if not source_is_file:
         raise CodexExtensionError(OUTPUT_CODE_PERSIST_FAILED, f"Source image does not exist: {source}")
 
     _ensure_previewable_extension(source, code=OUTPUT_CODE_UNSUPPORTED_EXTENSION)
@@ -122,6 +137,13 @@ def persist_result_image(
     )
 
     destination_abs.parent.mkdir(parents=True, exist_ok=True)
+    if source == destination_abs.resolve():
+        return ResolvedOutput(
+            final_abs_path=destination_abs.resolve(),
+            workspace_rel_path=destination_abs.resolve().relative_to(workspace_abs),
+            requested_target=Path(output_target),
+        )
+
     try:
         shutil.copy2(source, destination_abs)
     except OSError as exc:
