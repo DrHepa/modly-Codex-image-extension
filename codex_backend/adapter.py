@@ -4,11 +4,13 @@ import atexit
 import base64
 import binascii
 import importlib
+import inspect
 import os
 import shutil
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
+from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
 
@@ -140,6 +142,28 @@ def _load_codex_app_server() -> Any:
             RUNTIME_CODE_CALL_FAILED,
             "codex_app_server is not importable; install or vendor it before running this extension.",
         ) from exc
+
+
+def _allow_unknown_reasoning_effort_values(module: Any) -> None:
+    reasoning_effort = getattr(module, "ReasoningEffort", None)
+    if not isinstance(reasoning_effort, type) or not issubclass(reasoning_effort, Enum):
+        return
+
+    inherited_missing = inspect.getattr_static(reasoning_effort, "_missing_")
+    standard_missing = inspect.getattr_static(Enum, "_missing_")
+    if inherited_missing is not standard_missing:
+        return
+
+    def _missing_(cls: type[Enum], value: object) -> Enum:
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"{value!r} is not a valid {cls.__qualname__}")
+
+        member = str.__new__(cls, value) if issubclass(cls, str) else object.__new__(cls)
+        member._name_ = None
+        member._value_ = value
+        return member
+
+    reasoning_effort._missing_ = classmethod(_missing_)
 
 
 def _module_runtime_evidence(module: Any) -> dict[str, Any]:
@@ -392,6 +416,7 @@ def _run_sdk_turn(module: Any, mode: str, payload: Mapping[str, Any]) -> Mapping
 
 def _default_invoke(mode: str, payload: Mapping[str, Any]) -> Any:
     module = _load_codex_app_server()
+    _allow_unknown_reasoning_effort_values(module)
     required_exports = ("Codex", "AppServerConfig", "TextInput", "LocalImageInput")
     missing_exports = [name for name in required_exports if not hasattr(module, name)]
     if missing_exports:

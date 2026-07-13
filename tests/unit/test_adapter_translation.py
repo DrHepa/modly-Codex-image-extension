@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import base64
+import inspect
 import sys
 from collections.abc import Callable
+from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import BaseModel, ValidationError
 
 import codex_backend.adapter as adapter_module
 import generator as generator_module
@@ -459,6 +462,89 @@ def test_run_sdk_turn_raises_failed_turn_when_no_saved_path_was_persisted() -> N
 
     assert exc_info.value.machine_code == RUNTIME_CODE_CALL_FAILED
     assert "stream disconnected before completion" in str(exc_info.value)
+
+
+def test_default_invoker_accepts_unknown_reasoning_effort_values_without_rewriting_them(
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    class LegacyReasoningEffort(Enum):
+        none = "none"
+        minimal = "minimal"
+        low = "low"
+        medium = "medium"
+        high = "high"
+        xhigh = "xhigh"
+
+    class LegacyThreadStartResponse(BaseModel):
+        reasoningEffort: LegacyReasoningEffort
+
+    with pytest.raises(ValidationError, match="reasoningEffort"):
+        LegacyThreadStartResponse.model_validate({"reasoningEffort": "ultra"})
+
+    module = _fake_sdk_module(
+        persisted_items=[{"saved_path": "/tmp/generated.png"}],
+        turn_status="completed",
+    )
+    module.ReasoningEffort = LegacyReasoningEffort
+    original_thread_start = module.Codex.thread_start
+    validated_response_efforts: list[LegacyReasoningEffort] = []
+
+    def thread_start_with_newer_response(self):  # noqa: ANN001, ANN202
+        response = LegacyThreadStartResponse.model_validate({"reasoningEffort": "ultra"})
+        validated_response_efforts.append(response.reasoningEffort)
+        return original_thread_start(self)
+
+    module.Codex.thread_start = thread_start_with_newer_response
+    monkeypatch.setattr(adapter_module, "_load_codex_app_server", lambda: module)
+
+    adapter_module._default_invoke(
+        TEXT_TO_IMAGE_MODE,
+        {"prompt": "draw a fox", "codex_bin": "/tmp/codex"},
+    )
+
+    patched_missing = inspect.getattr_static(LegacyReasoningEffort, "_missing_")
+    adapter_module._default_invoke(
+        TEXT_TO_IMAGE_MODE,
+        {"prompt": "draw a fox", "codex_bin": "/tmp/codex"},
+    )
+
+    assert inspect.getattr_static(LegacyReasoningEffort, "_missing_") is patched_missing
+    assert [effort.value for effort in validated_response_efforts] == ["ultra", "ultra"]
+    assert LegacyReasoningEffort("xhigh") is LegacyReasoningEffort.xhigh
+    for raw_value in ("ultra", "max", "vendor/future", " "):
+        assert LegacyReasoningEffort(raw_value).value == raw_value
+    for invalid_value in ("", None, 42):
+        with pytest.raises(ValueError):
+            LegacyReasoningEffort(invalid_value)
+
+
+def test_default_invoker_preserves_sdk_reasoning_effort_missing_handler(monkeypatch) -> None:  # noqa: ANN001
+    class FutureReasoningEffort(Enum):
+        xhigh = "xhigh"
+
+        @classmethod
+        def _missing_(cls, value):  # noqa: ANN001, ANN206
+            if value == "future-native":
+                return cls.xhigh
+            return None
+
+    module = _fake_sdk_module(
+        persisted_items=[{"saved_path": "/tmp/generated.png"}],
+        turn_status="completed",
+    )
+    module.ReasoningEffort = FutureReasoningEffort
+    original_missing = inspect.getattr_static(FutureReasoningEffort, "_missing_")
+    monkeypatch.setattr(adapter_module, "_load_codex_app_server", lambda: module)
+
+    adapter_module._default_invoke(
+        TEXT_TO_IMAGE_MODE,
+        {"prompt": "draw a fox", "codex_bin": "/tmp/codex"},
+    )
+
+    assert inspect.getattr_static(FutureReasoningEffort, "_missing_") is original_missing
+    assert FutureReasoningEffort("future-native") is FutureReasoningEffort.xhigh
+    with pytest.raises(ValueError):
+        FutureReasoningEffort("ultra")
 
 
 def test_default_adapter_reports_missing_public_sdk_exports(monkeypatch) -> None:  # noqa: ANN001
