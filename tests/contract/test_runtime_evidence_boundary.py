@@ -11,10 +11,10 @@ MANIFEST_PATH = Path(__file__).resolve().parents[2] / "manifest.json"
 
 
 FakeCodexModule = SimpleNamespace(
-    __name__="codex_app_server",
-    __version__="0.9.0",
+    __name__="openai_codex",
+    __version__="0.154.0",
     Codex=type("Codex", (), {}),
-    AppServerConfig=type("AppServerConfig", (), {}),
+    Sandbox=type("Sandbox", (), {"workspace_write": "workspace-write"}),
     TextInput=type("TextInput", (), {}),
     LocalImageInput=type("LocalImageInput", (), {}),
 )
@@ -26,7 +26,7 @@ def load_manifest() -> dict:
 
 def test_runtime_evidence_stays_outside_planned_manifest_identity(monkeypatch) -> None:  # noqa: ANN001
     original_manifest = load_manifest()
-    monkeypatch.setattr("codex_backend.adapter._load_codex_app_server", lambda: FakeCodexModule)
+    monkeypatch.setattr("codex_backend.adapter._load_openai_codex", lambda: FakeCodexModule)
     monkeypatch.setattr(
         "codex_backend.adapter._run_sdk_turn",
         lambda module, mode, payload: {"items": [{"saved_path": "/tmp/runtime-output.png", "provider": payload["prompt"]}]},
@@ -46,8 +46,8 @@ def test_runtime_evidence_stays_outside_planned_manifest_identity(monkeypatch) -
 
     assert result.metadata["runtime_evidence"] == {
         "source": "python-module",
-        "runtime_name": "codex_app_server",
-        "runtime_version": "0.9.0",
+        "runtime_name": "openai_codex",
+        "runtime_version": "0.154.0",
     }
     assert report.evidence.runtime_name == "codex"
     assert load_manifest() == original_manifest

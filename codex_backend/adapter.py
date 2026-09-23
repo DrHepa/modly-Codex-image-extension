@@ -4,13 +4,9 @@ import atexit
 import base64
 import binascii
 import importlib
-import inspect
-import os
-import shutil
 import sys
 import tempfile
 from collections.abc import Mapping, Sequence
-from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
 
@@ -57,7 +53,7 @@ _INSTRUCTION_EXCLUDED_KEYS = frozenset(
         "prompt",
         "input_image_path",
         "reference_image_paths",
-        "codex_bin",
+        "model",
         "output_target",
         "outputTarget",
         "output_path",
@@ -91,6 +87,18 @@ _MEDIA_TYPE_SUFFIXES = {
 _CODEX_WORKSPACE_ROOT_KEY = "_codex_workspace_root"
 _CODEX_OUTPUT_TARGET_KEY = "_codex_output_target"
 _CODEX_CWD_KEY = "_codex_cwd"
+_OFFICIAL_THREAD_ITEM_TYPES = frozenset(
+    {
+        "agentMessage",
+        "commandExecution",
+        "imageGeneration",
+        "imageView",
+        "mcpToolCall",
+        "reasoning",
+        "userMessage",
+    }
+)
+_OFFICIAL_IMAGE_OUTPUT_ITEM_TYPES = frozenset({"imageGeneration"})
 
 EXTENSION_ROOT = Path(__file__).resolve().parents[1]
 
@@ -117,6 +125,22 @@ def _as_mapping(raw: Any) -> Mapping[str, Any]:
     return {}
 
 
+def _output_thread_items(raw: Any) -> Any:
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes, bytearray)):
+        return raw
+
+    items = list(raw)
+    item_types = [str(mapping.get("type")) for item in items if (mapping := _as_mapping(item)).get("type")]
+    if not any(item_type in _OFFICIAL_THREAD_ITEM_TYPES for item_type in item_types):
+        return items
+
+    return [
+        item
+        for item in items
+        if str(_as_mapping(item).get("type")) in _OFFICIAL_IMAGE_OUTPUT_ITEM_TYPES
+    ]
+
+
 def _extension_site_packages_candidates(extension_root: Path = EXTENSION_ROOT) -> list[Path]:
     venv_dir = extension_root / "venv"
     candidates = [venv_dir / "Lib" / "site-packages"]
@@ -133,66 +157,25 @@ def _add_extension_venv_site_packages(extension_root: Path = EXTENSION_ROOT) -> 
             sys.path.insert(0, path_value)
 
 
-def _load_codex_app_server() -> Any:
+def _load_openai_codex() -> Any:
     _add_extension_venv_site_packages(EXTENSION_ROOT)
     try:
-        return importlib.import_module("codex_app_server")
+        return importlib.import_module("openai_codex")
     except ModuleNotFoundError as exc:
         raise CodexExtensionError(
             RUNTIME_CODE_CALL_FAILED,
-            "codex_app_server is not importable; install or vendor it before running this extension.",
+            "openai_codex is not importable; run the extension setup to install openai-codex.",
         ) from exc
 
 
-def _allow_unknown_reasoning_effort_values(module: Any) -> None:
-    reasoning_effort = getattr(module, "ReasoningEffort", None)
-    if not isinstance(reasoning_effort, type) or not issubclass(reasoning_effort, Enum):
-        return
-
-    inherited_missing = inspect.getattr_static(reasoning_effort, "_missing_")
-    standard_missing = inspect.getattr_static(Enum, "_missing_")
-    if inherited_missing is not standard_missing:
-        return
-
-    def _missing_(cls: type[Enum], value: object) -> Enum:
-        if not isinstance(value, str) or not value:
-            raise ValueError(f"{value!r} is not a valid {cls.__qualname__}")
-
-        member = str.__new__(cls, value) if issubclass(cls, str) else object.__new__(cls)
-        member._name_ = None
-        member._value_ = value
-        return member
-
-    reasoning_effort._missing_ = classmethod(_missing_)
-
-
 def _module_runtime_evidence(module: Any) -> dict[str, Any]:
-    module_name = getattr(module, "__name__", None) or "codex_app_server"
+    module_name = getattr(module, "__name__", None) or "openai_codex"
     module_version = getattr(module, "__version__", None)
     return {
         "source": "python-module",
         "runtime_name": module_name,
         "runtime_version": str(module_version) if module_version is not None else None,
     }
-
-
-def _resolve_codex_bin(payload: Mapping[str, Any]) -> str:
-    explicit = payload.get("codex_bin")
-    if isinstance(explicit, str) and explicit.strip():
-        return explicit.strip()
-
-    env_value = os.environ.get("CODEX_BIN")
-    if isinstance(env_value, str) and env_value.strip():
-        return env_value.strip()
-
-    resolved = shutil.which("codex")
-    if resolved:
-        return resolved
-
-    raise CodexExtensionError(
-        RUNTIME_CODE_CALL_FAILED,
-        "Unable to resolve the local codex binary for AppServerConfig.codex_bin.",
-    )
 
 
 def _stringify_param_value(value: Any) -> str:
@@ -274,8 +257,15 @@ def _raise_for_failed_turn(turn: Any) -> None:
 
     raise CodexExtensionError(
         RUNTIME_CODE_CALL_FAILED,
-        _turn_error_message(turn) or "codex_app_server reported a failed turn.",
+        _turn_error_message(turn) or "The OpenAI Codex SDK reported a failed turn.",
     )
+
+
+def _raise_run_failure(exc: Exception) -> None:
+    raise CodexExtensionError(
+        RUNTIME_CODE_CALL_FAILED,
+        str(exc) or "The OpenAI Codex SDK turn failed before returning a result.",
+    ) from exc
 
 
 def _find_turn(turns: Sequence[Any] | None, turn_id: str) -> Any | None:
@@ -293,7 +283,7 @@ def _resolve_sdk_cwd(payload: Mapping[str, Any]) -> Path:
         except (OSError, RuntimeError, ValueError) as exc:
             raise CodexExtensionError(
                 RUNTIME_CODE_CALL_FAILED,
-                "Invalid Codex working directory for AppServerConfig.cwd.",
+                "Invalid Codex working directory for thread_start(cwd=...).",
             ) from exc
 
     return Path.cwd().resolve()
@@ -345,37 +335,58 @@ def _choose_codex_output_fallback(cwd: Path, before_candidates: set[Path]) -> Pa
 def _run_sdk_turn(module: Any, mode: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
     cwd = _resolve_sdk_cwd(payload)
     before_candidates = _codex_output_candidates(cwd)
-    config = module.AppServerConfig(codex_bin=_resolve_codex_bin(payload), cwd=str(cwd))
     inputs = _sdk_thread_inputs(module, mode, payload)
+    thread_start_kwargs: dict[str, Any] = {
+        "cwd": str(cwd),
+        "sandbox": module.Sandbox.workspace_write,
+    }
+    model = payload.get("model")
+    if isinstance(model, str) and model.strip():
+        thread_start_kwargs["model"] = model
 
-    with module.Codex(config=config) as codex:
-        thread = codex.thread_start()
+    with module.Codex() as codex:
+        thread = codex.thread_start(**thread_start_kwargs)
         turn_handle = thread.turn(inputs)
-        completed_turn = turn_handle.run()
+        turn_id = turn_handle.id
+        completed_turn = None
+        run_failure: Exception | None = None
+        try:
+            completed_turn = turn_handle.run()
+        except Exception as exc:
+            # The official SDK raises when a turn finishes as failed. The
+            # app-server may still have persisted an image-generation item, so
+            # read the thread before deciding that no output can be recovered.
+            run_failure = exc
         try:
             persisted = thread.read(include_turns=True)
         except Exception:
             fallback_path = _choose_codex_output_fallback(cwd, before_candidates)
             if fallback_path is not None:
-                return {
+                recovered = {
                     "saved_path": str(fallback_path),
-                    "turn_id": turn_handle.id,
+                    "turn_id": turn_id,
                     "turn_status": _turn_status_value(completed_turn),
-                    "turn_error": _turn_error_message(completed_turn),
+                    "turn_error": _turn_error_message(completed_turn) or (str(run_failure) if run_failure else None),
                     "codex_output_fallback": True,
                 }
+                if run_failure is not None:
+                    recovered["turn_recovered_after_failure"] = True
+                return recovered
             _raise_for_failed_turn(completed_turn)
+            if run_failure is not None:
+                _raise_run_failure(run_failure)
             raise
         persisted_turn = _find_turn(
             getattr(getattr(persisted, "thread", None), "turns", None),
-            turn_handle.id,
+            turn_id,
         )
+        status_turn = persisted_turn or completed_turn
         persisted_items = list(
             getattr(persisted_turn, "items", None) or getattr(completed_turn, "items", None) or [],
         )
-        server_info = getattr(codex.metadata, "serverInfo", None)
-        turn_status = _turn_status_value(completed_turn)
-        turn_error = _turn_error_message(completed_turn)
+        server_info = getattr(codex.metadata, "server_info", None) or getattr(codex.metadata, "serverInfo", None)
+        turn_status = _turn_status_value(status_turn)
+        turn_error = _turn_error_message(status_turn) or (str(run_failure) if run_failure else None)
         partial_result = {"items": persisted_items}
         explicit_path = _extract_saved_path(partial_result)
         image_data = None if explicit_path else _extract_image_data(partial_result)
@@ -389,15 +400,17 @@ def _run_sdk_turn(module: Any, mode: str, payload: Mapping[str, Any]) -> Mapping
             or image_data is not None
             or fallback_path is not None
         )
-        recovered_after_failure = (
-            turn_status == "failed" and has_recoverable_output
+        recovered_after_failure = bool(
+            (turn_status == "failed" or run_failure is not None) and has_recoverable_output
         )
-        if turn_status == "failed" and not recovered_after_failure:
-            _raise_for_failed_turn(completed_turn)
+        if not has_recoverable_output:
+            _raise_for_failed_turn(status_turn)
+            if run_failure is not None:
+                _raise_run_failure(run_failure)
 
         result = {
             "items": persisted_items,
-            "turn_id": turn_handle.id,
+            "turn_id": turn_id,
             "turn_status": turn_status,
             "server_info": {
                 "name": getattr(server_info, "name", None),
@@ -415,14 +428,13 @@ def _run_sdk_turn(module: Any, mode: str, payload: Mapping[str, Any]) -> Mapping
 
 
 def _default_invoke(mode: str, payload: Mapping[str, Any]) -> Any:
-    module = _load_codex_app_server()
-    _allow_unknown_reasoning_effort_values(module)
-    required_exports = ("Codex", "AppServerConfig", "TextInput", "LocalImageInput")
+    module = _load_openai_codex()
+    required_exports = ("Codex", "Sandbox", "TextInput", "LocalImageInput")
     missing_exports = [name for name in required_exports if not hasattr(module, name)]
     if missing_exports:
         raise CodexExtensionError(
             RUNTIME_CODE_CALL_FAILED,
-            "codex_app_server is missing required public exports: " + ", ".join(missing_exports),
+            "openai_codex is missing required public exports: " + ", ".join(missing_exports),
         )
     return _run_sdk_turn(module, mode, payload)
 
@@ -506,6 +518,29 @@ def _write_temp_result_image(image_bytes: bytes, suffix: str) -> Path:
     return temp_path
 
 
+def _coerce_saved_path_value(value: Any) -> str | None:
+    if isinstance(value, Path):
+        return str(value)
+
+    if isinstance(value, str):
+        if not value.strip() or _looks_like_image_data(value):
+            return None
+        return value
+
+    root = getattr(value, "root", None)
+    if root is not None and root is not value:
+        coerced_root = _coerce_saved_path_value(root)
+        if coerced_root:
+            return coerced_root
+
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump()
+        if dumped is not value:
+            return _coerce_saved_path_value(dumped)
+
+    return None
+
+
 def _extract_image_data(raw: Any) -> tuple[bytes, str, str] | None:
     if raw is None:
         return None
@@ -523,7 +558,10 @@ def _extract_image_data(raw: Any) -> tuple[bytes, str, str] | None:
         for key in _NESTED_PATH_KEYS:
             if key in _IMAGE_DATA_KEYS:
                 continue
-            decoded = _extract_image_data(raw.get(key))
+            value = raw.get(key)
+            if key == "items":
+                value = _output_thread_items(value)
+            decoded = _extract_image_data(value)
             if decoded is not None:
                 return decoded
 
@@ -552,14 +590,14 @@ def _extract_saved_path(raw: Any, *, allow_bare_string: bool = True) -> str | No
 
     if isinstance(raw, Mapping):
         for key in _DIRECT_PATH_KEYS:
-            value = raw.get(key)
-            if isinstance(value, (str, Path)) and str(value).strip():
-                if isinstance(value, str) and _looks_like_image_data(value):
-                    continue
-                return str(value)
+            coerced = _coerce_saved_path_value(raw.get(key))
+            if coerced:
+                return coerced
 
         for key in _NESTED_PATH_KEYS:
             value = raw.get(key)
+            if key == "items":
+                value = _output_thread_items(value)
             extracted = _extract_saved_path(value, allow_bare_string=False)
             if extracted:
                 return extracted
@@ -571,11 +609,9 @@ def _extract_saved_path(raw: Any, *, allow_bare_string: bool = True) -> str | No
                 return extracted
 
     if hasattr(raw, "saved_path"):
-        value = getattr(raw, "saved_path")
-        if value:
-            if isinstance(value, str) and _looks_like_image_data(value):
-                return None
-            return str(value)
+        coerced = _coerce_saved_path_value(getattr(raw, "saved_path"))
+        if coerced:
+            return coerced
 
     mapping = _as_mapping(raw)
     if mapping and mapping is not raw:
@@ -597,18 +633,19 @@ def _collect_saved_paths(raw: Any, *, allow_bare_string: bool = True) -> list[st
     if isinstance(raw, Mapping):
         direct_paths: list[str] = []
         for key in _DIRECT_PATH_KEYS:
-            value = raw.get(key)
-            if isinstance(value, (str, Path)) and str(value).strip():
-                if isinstance(value, str) and _looks_like_image_data(value):
-                    continue
-                direct_paths.append(str(value))
+            coerced = _coerce_saved_path_value(raw.get(key))
+            if coerced:
+                direct_paths.append(coerced)
 
         if direct_paths:
             return direct_paths
 
         nested_paths: list[str] = []
         for key in _NESTED_PATH_KEYS:
-            nested_paths.extend(_collect_saved_paths(raw.get(key), allow_bare_string=False))
+            value = raw.get(key)
+            if key == "items":
+                value = _output_thread_items(value)
+            nested_paths.extend(_collect_saved_paths(value, allow_bare_string=False))
         return nested_paths
 
     if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
@@ -618,11 +655,9 @@ def _collect_saved_paths(raw: Any, *, allow_bare_string: bool = True) -> list[st
         return collected
 
     if hasattr(raw, "saved_path"):
-        value = getattr(raw, "saved_path")
-        if value:
-            if isinstance(value, str) and _looks_like_image_data(value):
-                return []
-            return [str(value)]
+        coerced = _coerce_saved_path_value(getattr(raw, "saved_path"))
+        if coerced:
+            return [coerced]
 
     mapping = _as_mapping(raw)
     if mapping and mapping is not raw:
@@ -682,7 +717,7 @@ class CodexAdapter:
             return {}
 
         try:
-            module = _load_codex_app_server()
+            module = _load_openai_codex()
         except CodexExtensionError:
             return {}
 

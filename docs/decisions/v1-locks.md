@@ -2,7 +2,7 @@
 
 ## Status
 - **Locked for V1**: accepted Codex runtime evidence source, compatible version policy, extension dependency strategy, planned identity/runtime identity separation, and Python-first subprocess packaging shape.
-- **Locked for current V1 host path**: a reviewed pinned direct-source install is used to acquire `codex_app_server` during extension setup.
+- **Locked for current V1 host path**: the published official `openai-codex==0.154.0` SDK is paired with `openai-codex-cli-bin==0.154.0` during extension setup.
 
 ## Locked: accepted Codex runtime evidence source
 
@@ -31,34 +31,38 @@ V1 locks a **conservative compatibility rule**:
 ### Current V1 assumption
 - Because daily Codex CLI releases can otherwise block newly updated users immediately, the working implementation uses a **minimum version gate** by default.
 - Newer versions pass preflight as **experimental/unvalidated**; support claims still require explicit smoke evidence before documentation can promote them.
-- Windows `x86_64` is enabled as an **Experimental / smoke-validated on one host** preflight path; Windows `arm64` remains unsupported/fail-closed.
+- The official 0.154.0 SDK/CLI-bin path has authoritative E2E evidence on one Linux ARM64 host: setup, health/reload, default-model generation, multi-input generation with explicit `gpt-6-astra`, persistence, HTTP image serving, and visual QA passed. This is host-specific evidence, not a general portability promotion.
+- Windows `x86_64` remains enabled in preflight, but its only smoke evidence belongs to the retired legacy integration; the official 0.154.0 path is **UNTESTED E2E**. Windows `arm64` remains unsupported/fail-closed.
 - This is a limited validation gate, not a broad support promotion. Broader support promotion requires more recorded smoke evidence for CLI discovery/version, read-only auth parsing, setup, generation, output persistence, and Modly preview across target hosts.
 
-## Locked: `codex_app_server` dependency strategy
+## Locked: official Codex SDK dependency strategy
 
-V1 locks a **conservative source-based strategy** for `codex_app_server`:
+V1 locks the published official Python SDK and its matching runtime dependency:
 
-- The extension code may depend on `codex_app_server` as a Python import boundary.
-- This repository does **not** currently treat `codex_app_server` as a proven public PyPI dependency.
-- Therefore V1 must **not** assume `pip install codex_app_server` is sufficient or stable.
+- The extension imports `openai_codex` as its only Python SDK boundary.
+- The reviewed extension pin is `openai-codex==0.154.0`.
+- That release installs `openai-codex-cli-bin==0.154.0`, preventing the legacy SDK/newer CLI response-schema drift that rejected `serviceTier="default"`.
+- PyPI metadata and the downloaded SDK wheel confirm the exact dependency pin; PyPI publishes a `manylinux_2_17_aarch64` CLI runtime wheel for this version.
+- The official collector raises from `TurnHandle.run()` when a turn finishes failed, so the adapter retains the handle ID and reads persisted thread items before deciding whether the failure produced a recoverable image.
+- Official thread history also contains primary/reference paths in `userMessage` and `imageView` items. Only `imageGeneration` items are authoritative generated-output records; counting generic `path` fields makes a valid single output look like unsupported multi-output.
 
 ### Required strategy
-- Keep `codex_app_server` out of hard runtime installation requirements in `pyproject.toml` for now.
-- Use a **pinned direct-source install reference** backed by a reviewed upstream location.
-- Current reviewed source pin: `git+https://github.com/openai/codex.git@a9f75e5cda2d6ff469a859baf8d2f50b9b04944a#subdirectory=sdk/python`.
-- The adapter must pass `AppServerConfig(codex_bin=...)` explicitly because the source install does not include the published pinned runtime package.
+- Pin the official SDK in both `pyproject.toml` and `setup.py`.
+- Let the SDK use its packaged matching CLI runtime instead of injecting a potentially incompatible `codex_bin`.
+- Pass working-directory and sandbox policy through the official `thread_start(cwd=..., sandbox=...)` API.
 
 ### Rejected for V1
 - Unpinned floating install instructions.
-- Hand-wavy "install whatever `codex_app_server` version exists" guidance.
-- Declaring a PyPI dependency without public packaging proof.
+- The former community/legacy `codex_app_server_sdk` dependency.
+- Patching legacy Pydantic enums to tolerate a newer CLI schema.
+- Floating `openai-codex` installs or a separately drifting CLI override.
 
 ## Locked: packaging/bootstrap shape
 
 - Python-first subprocess structure stays in-repo under `codex_backend/`.
 - `setup.py` remains present because the approved design targets Modly's subprocess extension flow.
-- Initial bootstrap dependencies stay minimal: setuptools-based packaging plus test extras only.
-- `setup.py` must run pip through the platform-correct venv Python (`python -m pip`), including `venv/Scripts/python.exe -m pip` on Windows, and must not install, update, authenticate, or repair the Codex CLI.
+- Runtime dependencies stay explicit and pinned; test extras remain separate.
+- `setup.py` must run pip through the platform-correct venv Python (`python -m pip`), including `venv/Scripts/python.exe -m pip` on Windows. It installs only the SDK-owned matching CLI dependency; it must not authenticate, repair accounts, or mutate a standalone Codex CLI installation.
 
 ## Locked: identity boundary
 
@@ -78,9 +82,9 @@ V1 locks a **conservative source-based strategy** for `codex_app_server`:
 
 ## Assumptions still not promoted to locks
 
-- Exact upstream source location for `codex_app_server`.
+- Future official SDK/CLI versions beyond the reviewed `0.154.0` pair.
 - Additional Codex runtime version strings beyond the current minimum policy.
-- Broader Windows runtime behavior beyond the single smoke-validated `windows/x86_64` host.
+- Windows runtime behavior for the official 0.154.0 path; the single previous `windows/x86_64` smoke is historical only.
 - Host preview behavior outside the already documented branch-local observations.
 
 These remain assumptions until later phases add verified implementation evidence and contract tests.

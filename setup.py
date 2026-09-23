@@ -10,7 +10,7 @@ Where the payload JSON may include at least:
     ext_dir     -- absolute path to the extension directory
 
 Optional payload keys accepted by this extension:
-    codex_app_server_source -- reviewed source/install reference for codex_app_server
+    openai_codex_spec -- must match the pinned official SDK release
 
 The script intentionally avoids setuptools/distutils command parsing because Modly
 passes the payload as a single JSON positional argument.
@@ -19,18 +19,13 @@ passes the payload as a single JSON positional argument.
 from __future__ import annotations
 
 import json
-import os
 import platform
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-DEFAULT_CODEX_APP_SERVER_SOURCE = (
-    "git+https://github.com/openai/codex.git"
-    "@a9f75e5cda2d6ff469a859baf8d2f50b9b04944a"
-    "#subdirectory=sdk/python"
-)
+DEFAULT_OPENAI_CODEX_SPEC = "openai-codex==0.154.0"
 
 
 def repo_root() -> Path:
@@ -52,7 +47,7 @@ def parse_args(argv: list[str] | None = None) -> dict[str, Any]:
             "ext_dir": argv[1],
         }
         if len(argv) >= 3:
-            payload["codex_app_server_source"] = argv[2]
+            payload["openai_codex_spec"] = argv[2]
         return normalize_payload(payload)
 
     if len(argv) == 1:
@@ -66,14 +61,14 @@ def parse_args(argv: list[str] | None = None) -> dict[str, Any]:
 
     raise SystemExit(
         "Usage: python setup.py '<json-payload>'\n"
-        "   or: python setup.py <python_exe> <ext_dir> [codex_app_server_source]"
+        "   or: python setup.py <python_exe> <ext_dir> [openai_codex_spec]"
     )
 
 
 def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
     python_exe = payload.get("python_exe")
     ext_dir = payload.get("ext_dir")
-    codex_source = payload.get("codex_app_server_source")
+    codex_spec = payload.get("openai_codex_spec")
 
     if not isinstance(python_exe, str) or not python_exe.strip():
         raise SystemExit("setup payload must include a non-empty python_exe")
@@ -86,22 +81,23 @@ def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "ext_dir": str(Path(ext_dir.strip()).expanduser().resolve()),
     }
 
-    if isinstance(codex_source, str) and codex_source.strip():
-        normalized["codex_app_server_source"] = codex_source.strip()
+    if isinstance(codex_spec, str) and codex_spec.strip():
+        normalized_spec = codex_spec.strip()
+        if normalized_spec != DEFAULT_OPENAI_CODEX_SPEC:
+            raise SystemExit(
+                "openai_codex_spec must match the reviewed pin "
+                f"{DEFAULT_OPENAI_CODEX_SPEC}"
+            )
+        normalized["openai_codex_spec"] = normalized_spec
 
     return normalized
 
 
-def resolve_codex_app_server_source(payload: dict[str, Any]) -> str:
-    source = payload.get("codex_app_server_source")
-    if isinstance(source, str) and source.strip():
-        return source.strip()
-
-    env_source = os.environ.get("CODEX_APP_SERVER_SOURCE")
-    if isinstance(env_source, str) and env_source.strip():
-        return env_source.strip()
-
-    return DEFAULT_CODEX_APP_SERVER_SOURCE
+def resolve_openai_codex_spec(payload: dict[str, Any]) -> str:
+    spec = payload.get("openai_codex_spec")
+    if isinstance(spec, str) and spec.strip():
+        return spec.strip()
+    return DEFAULT_OPENAI_CODEX_SPEC
 
 
 def create_venv(python_exe: str, ext_dir: Path) -> Path:
@@ -121,18 +117,34 @@ def bootstrap_packaging_tools(venv_dir: Path) -> None:
     pip_install(venv_dir, "install", "--upgrade", "pip", "setuptools", "wheel")
 
 
-def install_optional_codex_app_server(venv_dir: Path, payload: dict[str, Any]) -> None:
-    source = resolve_codex_app_server_source(payload)
+def install_openai_codex(venv_dir: Path, payload: dict[str, Any]) -> None:
+    spec = resolve_openai_codex_spec(payload)
+    print(f"[setup] Installing official Codex Python SDK: {spec}")
+    pip_install(venv_dir, "install", spec)
 
-    print(f"[setup] Installing codex_app_server from reviewed source: {source}")
-    pip_install(venv_dir, "install", source)
+
+def verify_openai_codex(venv_dir: Path) -> None:
+    print("[setup] Verifying the pinned official Codex SDK/runtime pair …")
+    pip_install(venv_dir, "check")
+    verification = (
+        "from importlib.metadata import version; "
+        "from openai_codex import Codex, LocalImageInput, Sandbox, TextInput; "
+        "assert version('openai-codex') == '0.154.0'; "
+        "assert version('openai-codex-cli-bin') == '0.154.0'; "
+        "assert Codex and LocalImageInput and Sandbox and TextInput"
+    )
+    subprocess.run(
+        [str(venv_python_executable(venv_dir)), "-c", verification],
+        check=True,
+    )
 
 
 def setup_extension(payload: dict[str, Any]) -> None:
     ext_dir = Path(payload["ext_dir"])
     venv_dir = create_venv(payload["python_exe"], ext_dir)
     bootstrap_packaging_tools(venv_dir)
-    install_optional_codex_app_server(venv_dir, payload)
+    install_openai_codex(venv_dir, payload)
+    verify_openai_codex(venv_dir)
     print(f"[setup] Done. Extension venv ready at: {venv_dir}")
 
 

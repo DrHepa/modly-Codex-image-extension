@@ -43,6 +43,7 @@ CODEX_ACCESS_DOCS_URL = "https://developers.openai.com/codex/pricing"
 EXTENSION_CHANGELOG_URL = "https://github.com/DrHepa/modly-Codex-image-extension/blob/main/CHANGELOG.md"
 
 REFERENCE_IMAGE_KEYS = (
+    "extra_image_paths",
     "input_images",
     "inputImages",
     "reference_images",
@@ -205,6 +206,8 @@ def _iter_image_items(raw_value: Any) -> tuple[Any, ...]:
 def _stage_reference_images(raw_value: Any) -> tuple[Path, ...]:
     staged: list[Path] = []
     for item in _iter_image_items(raw_value):
+        if item is None or (isinstance(item, str) and not item.strip()):
+            continue
         staged_image = _stage_input_image(item)
         if staged_image is not None:
             staged.append(staged_image)
@@ -341,7 +344,7 @@ def _readiness_diagnostics(report: Any, machine_code: str, checked_at: str) -> d
         "platform_support_state": _platform_support_state(platform_key),
         "extension_setup_state": "ready",
         "extension_import_state": "ready",
-        "codex_app_server_state": "not_checked",
+        "openai_codex_sdk_state": "not_checked",
         "readiness_source": "codex_extension_preflight",
         "diagnostic_status": "ready" if report.ok else "blocked",
         "last_checked_at": checked_at,

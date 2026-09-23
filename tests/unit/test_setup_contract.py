@@ -23,27 +23,40 @@ def test_parse_args_accepts_modly_json_payload(tmp_path):
 
     assert payload["python_exe"] == "python3.12"
     assert payload["ext_dir"] == str(tmp_path.resolve())
-    assert "codex_app_server_source" not in payload
+    assert "openai_codex_spec" not in payload
 
 
-def test_parse_args_accepts_optional_codex_source(tmp_path):
+def test_parse_args_accepts_optional_official_sdk_spec(tmp_path):
     module = _load_setup_module()
 
     payload = module.parse_args([
-        '{"python_exe":"python3.12","ext_dir":"%s","codex_app_server_source":"git+https://example.invalid/codex.git"}' % tmp_path,
+        '{"python_exe":"python3.12","ext_dir":"%s","openai_codex_spec":"openai-codex==0.154.0"}' % tmp_path,
     ])
 
-    assert payload["codex_app_server_source"] == "git+https://example.invalid/codex.git"
+    assert payload["openai_codex_spec"] == "openai-codex==0.154.0"
 
 
-def test_resolve_codex_app_server_source_defaults_to_reviewed_pin(tmp_path):
+def test_parse_args_rejects_sdk_cli_version_drift(tmp_path):
+    module = _load_setup_module()
+
+    try:
+        module.parse_args([
+            '{"python_exe":"python3.12","ext_dir":"%s","openai_codex_spec":"openai-codex==0.155.0"}' % tmp_path,
+        ])
+    except SystemExit as exc:
+        assert "must match the reviewed pin" in str(exc)
+    else:
+        raise AssertionError("Expected setup to reject a drifting SDK override")
+
+
+def test_resolve_openai_codex_spec_defaults_to_official_release_pin(tmp_path):
     module = _load_setup_module()
 
     payload = module.parse_args([
         '{"python_exe":"python3.12","ext_dir":"%s"}' % tmp_path,
     ])
 
-    assert module.resolve_codex_app_server_source(payload) == module.DEFAULT_CODEX_APP_SERVER_SOURCE
+    assert module.resolve_openai_codex_spec(payload) == "openai-codex==0.154.0"
 
 
 def test_venv_python_executable_uses_windows_virtualenv_scripts_path(monkeypatch):
@@ -96,17 +109,21 @@ def test_setup_extension_calls_bootstrap_steps_in_order(tmp_path, monkeypatch):
     def fake_bootstrap(venv_dir):
         calls.append(("bootstrap", Path(venv_dir)))
 
-    def fake_install_optional(venv_dir, payload):
-        calls.append(("install_optional", (Path(venv_dir), dict(payload))))
+    def fake_install_sdk(venv_dir, payload):
+        calls.append(("install_sdk", (Path(venv_dir), dict(payload))))
+
+    def fake_verify_sdk(venv_dir):
+        calls.append(("verify_sdk", Path(venv_dir)))
 
     monkeypatch.setattr(module, "create_venv", fake_create_venv)
     monkeypatch.setattr(module, "bootstrap_packaging_tools", fake_bootstrap)
-    monkeypatch.setattr(module, "install_optional_codex_app_server", fake_install_optional)
+    monkeypatch.setattr(module, "install_openai_codex", fake_install_sdk)
+    monkeypatch.setattr(module, "verify_openai_codex", fake_verify_sdk)
 
     payload = {
         "python_exe": "python3.12",
         "ext_dir": str(tmp_path),
-        "codex_app_server_source": "git+https://example.invalid/codex.git",
+        "openai_codex_spec": "openai-codex==0.154.0",
     }
 
     module.setup_extension(payload)
@@ -114,5 +131,6 @@ def test_setup_extension_calls_bootstrap_steps_in_order(tmp_path, monkeypatch):
     assert [entry[0] for entry in calls] == [
         "create_venv",
         "bootstrap",
-        "install_optional",
+        "install_sdk",
+        "verify_sdk",
     ]

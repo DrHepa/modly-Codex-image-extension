@@ -99,6 +99,31 @@ def test_side_image_params_stage_as_references_after_explicit_refs(tmp_path: Pat
     assert request.params == {"strength": 0.5}
 
 
+def test_modly_extra_image_paths_preserve_order_and_omit_holes(tmp_path: Path) -> None:
+    first = tmp_path / "first.png"
+    second = tmp_path / "second.png"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+
+    request = generator_module.parse_generate_request(
+        {
+            "prompt": "use all connected inputs",
+            "mode": IMAGE_TO_IMAGE_MODE,
+            "output_target": "images/final.png",
+            "input_image": {"base64": "cHJpbWFyeQ==", "media_type": "image/png"},
+            "params": {
+                "extra_image_paths": [str(first), None, "", "   ", str(second)],
+                "model": "gpt-image-custom",
+            },
+        }
+    )
+
+    assert request.input_image_path is not None
+    assert request.input_image_path.read_bytes() == b"primary"
+    assert request.reference_image_paths == (first.resolve(), second.resolve())
+    assert request.params == {"model": "gpt-image-custom"}
+
+
 def test_generator_readiness_status_maps_preflight_machine_codes(monkeypatch) -> None:  # noqa: ANN001
     reports = iter(
         (
@@ -440,7 +465,16 @@ def test_generator_adapter_wraps_image_to_image_requests(monkeypatch) -> None:  
     monkeypatch.setattr(generator_module, "generate", fake_generate)
 
     adapter = generator_module.CodexImageGenerator(Path("/tmp/model"), Path("/tmp/workspace"))
-    result = adapter.generate(b"png-bytes", {"prompt": "edit this", "strength": 0.4, "mode": "image-to-image"})
+    result = adapter.generate(
+        b"png-bytes",
+        {
+            "prompt": "edit this",
+            "strength": 0.4,
+            "mode": "image-to-image",
+            "extra_image_paths": ["/tmp/second.png", None, "", "/tmp/fourth.png"],
+            "model": "gpt-image-custom",
+        },
+    )
 
     assert result == Path("/tmp/codex-image.png")
     assert recorded["workspace_root"] == Path("/tmp/workspace")
@@ -449,6 +483,8 @@ def test_generator_adapter_wraps_image_to_image_requests(monkeypatch) -> None:  
         "prompt": "edit this",
         "strength": 0.4,
         "mode": "image-to-image",
+        "extra_image_paths": ["/tmp/second.png", None, "", "/tmp/fourth.png"],
+        "model": "gpt-image-custom",
     }
     assert recorded["payload"]["input_image"] == {
         "base64": "cG5nLWJ5dGVz",

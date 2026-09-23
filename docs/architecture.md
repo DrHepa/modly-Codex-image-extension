@@ -32,13 +32,16 @@ Runtime/environment boundary.
 - Returns structured `PreflightReport` data without mutating planned manifest identity.
 
 ### `codex_backend/adapter.py`
-Single `codex_app_server` integration boundary.
+Single official `openai_codex` integration boundary.
 
 - Resolves supported text-to-image and image-to-image call shapes.
+- Passes an optional non-empty model ID only through `thread_start(model=...)`.
+- Starts the thread with `Sandbox.workspace_write` and the resolved host-local working directory.
+- Harvests saved paths only from official `imageGeneration` thread items; input-bearing `userMessage` and `imageView` paths are explicitly excluded from output cardinality.
 - Normalizes raw Codex responses into one `CodexResult`.
 - Attaches runtime module evidence as metadata only.
 
-No other module should call `codex_app_server` directly.
+No other module should call `openai_codex` directly.
 
 ### `codex_backend/persistence.py`
 Workspace-path contract boundary.

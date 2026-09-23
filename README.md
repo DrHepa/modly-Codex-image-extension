@@ -5,7 +5,7 @@ Experimental Modly model extension that lets Modly generate local images through
 In user terms: after the extension is installed in Modly and Codex is already working on the host, Modly can expose a **Codex Local Image Model** for:
 
 - **Text-to-image**: enter a prompt and receive one saved local image.
-- **Image-to-image**: provide one primary image plus a prompt and receive one saved local image, with optional generic reference images when Modly routes named image inputs.
+- **Image-to-image**: provide one primary image plus a prompt and receive one saved local image, with up to three optional reference images routed by Modly's multi-image contract.
 
 The extension returns a single absolute local image path. On the currently validated local Modly host path, that image is intended to be preview-compatible through Modly's image output handling.
 
@@ -18,32 +18,34 @@ This project is an independent integration experiment and is **not** affiliated 
 
 ## Current V1 support state
 
-- **Extension version**: `0.1.3`
+- **Extension version**: `0.1.4`
 - **Support state**: experimental
 - **Modly surface owner**: FastAPI model extension
 - **Bucket**: `model-managed-setup`
 - **Implementation profile**: `python-local-bridge`
-- **Setup contract**: user-managed Codex CLI install/login; extension-managed Python venv, pinned `codex_app_server` Python SDK/dependency bootstrap, and preflight checks
+- **Setup contract**: user-managed Codex login; extension-managed Python venv, official `openai-codex==0.154.0` SDK with its matching `openai-codex-cli-bin==0.154.0`, and host preflight checks
 - **Headless eligibility**: conditional; generation can run through Modly's backend model surfaces, but GitHub install/repair and app-level flows remain outside this extension's headless contract
-- **Validated host paths**: `linux/arm64` with generation verified on `codex-cli 0.122.0` and readiness verified on `codex-cli 0.124.0`; `windows/x86_64` smoke-validated on one user host with setup, SDK import, and generation working after the Windows setup/runtime fixes
+- **Historical host evidence**: the previous legacy integration generated on `linux/arm64` with `codex-cli 0.122.0`, passed readiness with `0.124.0`, and was smoke-tested once on `windows/x86_64`; this evidence does **not** validate the new official SDK path
+- **Current migration status**: **E2E PASS on the validated Linux ARM64 host** with `openai-codex==0.154.0` and `openai-codex-cli-bin==0.154.0`. Runtime setup, health/reload, default-model generation, multi-input generation with explicit `gpt-6-astra`, workspace persistence, HTTP image serving, and visual QA all passed
 - **Codex CLI compatibility policy**: minimum `>= 0.122.0` by default; newer versions pass preflight as experimental/unvalidated until smoke evidence records them
-- **Configured platform allowlist**: `darwin/arm64`, `darwin/x86_64`, `linux/arm64`, `linux/x86_64`, `windows/x86_64` as **Experimental / smoke-validated on one host**
+- **Configured platform allowlist**: `darwin/arm64`, `darwin/x86_64`, `linux/arm64`, `linux/x86_64`, and `windows/x86_64`; allowlisting is not E2E validation
 - **Linux ARM64 risk**: still marked high in metadata because it is validated on the current host path, not proven as a broad portability guarantee
+- **Official package evidence**: PyPI publishes `openai-codex==0.154.0`, pins `openai-codex-cli-bin==0.154.0`, and provides a `manylinux_2_17_aarch64` runtime wheel; the SDK wheel and public signatures were inspected in a temporary ARM64 environment
 
-## Platform support
+## Requirements and compatibility
 
 Runtime support is intentionally narrower than setup portability. `setup.py` contains platform-aware Python venv handling, but V1 runtime preflight is the source of truth for enabled generation platforms.
 
 | Platform | Runtime status | Notes |
 | --- | --- | --- |
-| Linux `arm64` | Supported / locally validated | Generation was verified with `codex-cli 0.122.0`; readiness/preflight was also verified with `0.124.0`. Every host must still pass local preflight. |
-| Linux `x86_64` | Supported by preflight allowlist | Enabled in V1 preflight; validate with the local Codex install, login, entitlement, and supported CLI version before treating a host as production-ready. |
-| macOS `arm64` | Allowed by preflight; pending live smoke here | Enabled in V1 preflight, but not live-smoked in this repository's current evidence set. |
-| macOS `x86_64` | Allowed by preflight; pending live smoke here | Enabled in V1 preflight, but not live-smoked in this repository's current evidence set. |
-| Windows `x86_64` | Experimental / smoke-validated on one host | Enabled as an evidence-gated experimental preflight path. Setup, SDK import, and generation have been smoke-validated on one user Windows host; keep treating additional Windows hosts as requiring local preflight/smoke evidence before production use. |
-| Windows `arm64` | Unsupported / fail-closed | Not enabled in V1 preflight. ARM64 requires separate Codex CLI and `codex_app_server` smoke evidence before reconsideration. |
+| Linux `arm64` | Official 0.154.0 path: **E2E PASS on one validated host** | Setup installed the paired SDK/CLI-bin 0.154.0 runtime; health returned HTTP 200 and reload completed without errors. Job `cefd6d9b-61e1-4901-9082-1837ce2f17f7` verified two image inputs plus explicit `gpt-6-astra`; job `799bf881-2945-483b-9cff-6b8786a3f576` verified one image with the configured default model. Both reached `done` at 100%, persisted valid 1254x1254 PNGs, served them as HTTP 200 `image/png`, and passed visual QA. This remains host-specific evidence, not a broad Linux ARM64 portability claim. |
+| Linux `x86_64` | **UNTESTED E2E** | Enabled in preflight; requires setup, login, generation, persistence, and preview evidence on the official 0.154.0 path. |
+| macOS `arm64` | **UNTESTED E2E** | Enabled in preflight, with no live smoke for the official SDK path. |
+| macOS `x86_64` | **UNTESTED E2E** | Enabled in preflight, with no live smoke for the official SDK path. |
+| Windows `x86_64` | Official 0.154.0 path: **UNTESTED E2E** | One historical smoke exists for the retired integration only; it cannot promote the migrated path. |
+| Windows `arm64` | Unsupported / fail-closed | Not enabled in V1 preflight. ARM64 requires separate Codex CLI and official SDK smoke evidence before reconsideration. |
 
-## Prerequisites
+### Prerequisites
 
 Before installing or using the extension, the host must already have:
 
@@ -57,15 +59,19 @@ Before installing or using the extension, the host must already have:
     - Use strict exact allowlisting only for validation/debugging: `CODEX_SUPPORTED_VERSIONS=0.124.0,...`.
     - If a newer Codex is blocked by `preflight/unsupported_version`, update this extension/configuration before assuming Codex itself needs an update.
 
-The extension setup installs `codex_app_server` from this pinned reviewed source unless explicitly overridden:
+The extension setup installs this pinned official SDK release:
 
 ```text
-git+https://github.com/openai/codex.git@a9f75e5cda2d6ff469a859baf8d2f50b9b04944a#subdirectory=sdk/python
+openai-codex==0.154.0
 ```
 
-This repo does **not** claim that `codex_app_server` is a stable public PyPI package. The pinned direct-source install is part of the V1 setup contract. It does **not** install or upgrade the Codex CLI itself; the CLI must already be installed and authenticated by the user.
+The official SDK release installs its matching `openai-codex-cli-bin==0.154.0` dependency, so the SDK protocol models and launched CLI stay aligned. This removes the legacy community `codex_app_server`/newer-CLI schema drift that rejected `serviceTier="default"`. The user's existing Codex authentication is reused. The separate read-only preflight still validates the host-visible `codex` command, version, platform, authentication, and entitlement before generation.
 
 ## Installation / consumption path
+
+### Install from GitHub
+
+In Modly, open **Models/Extensions → Install from GitHub**, enter this repository URL, and run the extension setup/repair action when prompted. The repository root already contains `manifest.json`, `setup.py`, and `generator.py`; do not select a nested directory.
 
 ### Local Modly install path
 
@@ -82,11 +88,11 @@ The setup payload must include:
 - `python_exe`: Python executable Modly wants the extension to use.
 - `ext_dir`: absolute path to the extension directory.
 
-Optional override:
+Optional compatibility field:
 
-- `codex_app_server_source`: replacement source for `codex_app_server` when intentionally reviewing a different source.
+- `openai_codex_spec`: accepted only when it exactly matches `openai-codex==0.154.0`; other values fail closed instead of silently drifting the SDK/CLI pair.
 
-The setup script creates `venv/` inside the extension directory, upgrades packaging tools through the venv Python (`python -m pip`, including `venv/Scripts/python.exe -m pip` on Windows), and installs the pinned `codex_app_server` Python SDK/dependency source. It does not install, update, authenticate, or repair the Codex CLI runtime.
+The setup script creates `venv/` inside the extension directory, upgrades packaging tools through the venv Python (`python -m pip`, including `venv/Scripts/python.exe -m pip` on Windows), and installs the pinned official SDK/runtime pair. It does not authenticate, repair accounts, or mutate the user's standalone Codex installation.
 
 ### GitHub install caveat for private repositories
 
@@ -123,25 +129,40 @@ UI expectation, when using a Modly app build wired to the same backend:
 
 If the backend lists the model but the UI does not show it, debug the Modly UI/backend wiring separately. This extension does not provide app-level UI install or repair automation.
 
-## Basic usage
+## Usage
 
 From Modly's generate/workflow surface:
 
 1. Select **Codex Local Image Model**.
 2. For text-to-image, provide a non-empty prompt.
-3. For image-to-image, provide one **Primary image** and a non-empty prompt. When Modly exposes the named workflow inputs, optional reference slots are displayed neutrally as **Image 2**, **Image 3**, and **Image 4**.
-4. Optionally pass supported parameters exposed by the node metadata, such as `size`, `quality`, `background`, or `strength`.
+3. For image-to-image, connect the primary image and optionally up to three more `image` inputs. Modly sends the primary as the normal multipart/image bytes and the connected secondary images in `params.extra_image_paths`.
+4. Optionally pass supported parameters exposed by the node metadata, such as `size`, `quality`, `background`, `strength`, or `model`. Leave `model` empty to use the configured Codex default; a non-empty value is forwarded literally to `thread_start(model=...)`.
 5. Run generation.
 
 The extension will:
 
 1. Validate the request.
 2. Run preflight checks for local Codex executable, supported platform, supported runtime version, authentication, and entitlement.
-3. Call the local Codex runtime through `codex_app_server`.
+3. Call the paired Codex runtime through the official `openai_codex` SDK.
 4. Persist one image under the Modly workspace/output target.
 5. Return the absolute local image path to Modly.
 
-Verified local generation evidence from the current host produced an absolute workspace image path similar to:
+## Parameters
+
+| Parameter | Nodes | Behavior |
+| --- | --- | --- |
+| `prompt` | Both | Required generation or edit instruction. |
+| `model` | Both | Optional free-form Codex model ID. Empty uses Codex configuration; non-empty is forwarded literally to thread start. |
+| `size` | Both | Requested output-size hint. |
+| `background` | Both | Requested background hint, such as `auto` or `transparent`, when supported. |
+| `quality` | Text-to-image | Requested quality hint. |
+| `strength` | Image-to-image | Transformation-strength hint from `0` to `1`. |
+
+Image-to-image also consumes Modly's internal `params.extra_image_paths`; it is transport metadata, not a visible path-entry control.
+
+The official SDK persists complete thread history. Output harvesting considers `imageGeneration` items only; paths attached to `userMessage` or `imageView` items are inputs and must never participate in the single-output count.
+
+Historical generation evidence from the retired integration produced an absolute workspace image path similar to:
 
 ```text
 <modly-workspace>/Default/codex/text-to-image-<request-id>.png
@@ -149,9 +170,9 @@ Verified local generation evidence from the current host produced an absolute wo
 
 ### Advanced reference image params
 
-The V1 manifest intentionally keeps the visible node UI compact. For planner or caller surfaces that can pass richer JSON params, image generation also accepts additional reference images through top-level payload keys or `params` keys named `input_images`, `inputImages`, `reference_images`, `referenceImages`, `reference_image_paths`, or `referenceImagePaths`.
+The image-to-image manifest uses the upstream representation `inputs: ["image", "image", "image", "image"]`. Modly keeps the primary image in the normal generator `image_bytes` argument and sends connected secondary images in `params.extra_image_paths`. Null, empty, and whitespace-only holes are omitted without reordering the remaining paths. Advanced callers may also use the existing `input_images`, `inputImages`, `reference_images`, `referenceImages`, `reference_image_paths`, or `referenceImagePaths` aliases.
 
-Modly workflow named inputs keep compatible routing handles named `front`, `left`, `back`, and `right`, but the manifest labels those slots as **Primary image**, **Image 2**, **Image 3**, and **Image 4**. The non-primary handles are still translated to internal params as `left_image_path`, `back_image_path`, and `right_image_path` for compatibility. These reference images are attached after any explicit reference-image list in deterministic handle order. The side-image path params are removed before prompt/instruction construction so raw local paths are not echoed into Codex text hints.
+Legacy advanced callers using `left_image_path`, `back_image_path`, and `right_image_path` remain compatible. All secondary images are attached after the primary in deterministic order. Image paths and the optional model ID are transport fields: neither is copied into the instruction text.
 
 Each value may be a single item or a list. Supported item shapes are:
 
@@ -176,7 +197,7 @@ The extension accepts only **workspace-relative** output targets.
 
 See `docs/decisions/v1-locks.md` for the branch-local `modly-private` image preview assumption and its portability caveat.
 
-## V1 scope
+## Limitations and V1 scope
 
 ### Supported modes
 
@@ -190,13 +211,12 @@ See `docs/decisions/v1-locks.md` for the branch-local `modly-private` image prev
 - Remote API-key mode or cloud fallback.
 - Batch queueing or multi-image outputs.
 - Video, audio, or non-image generation.
-- Public package readiness claims for `codex_app_server`.
 - App-level GitHub install/repair automation.
 - Cross-host preview guarantees outside the validated local Modly host path.
-- Codex CLI installation, upgrade, authentication, or repair from `setup.py`.
-- Promoting Windows beyond `Experimental / smoke-validated on one host` without broader recorded smoke evidence.
+- Codex authentication, account repair, or mutation of a standalone Codex CLI from `setup.py`.
+- Promoting any official 0.154.0 platform path to **E2E PASS** without new recorded setup, generation, persistence, and preview evidence.
 
-## Failure taxonomy
+## Troubleshooting and failure taxonomy
 
 Errors are explicit and machine-coded so Modly or callers can present useful messages.
 
@@ -229,10 +249,26 @@ Errors are explicit and machine-coded so Modly or callers can present useful mes
 
 Human-readable messaging for these codes lives in `codex_backend/errors.py`.
 
+## Weights
+
+This extension has no Hugging Face or other model-weight payload. The Modly model-weight download UI and `models/<extension-id>/<node-id>/` storage path are not used. Setup installs only the pinned official Codex SDK/runtime Python packages; Codex service access remains governed by the user's authenticated account.
+
+## Credits
+
+- Extension integration and manifest: **DrHepa**.
+- Codex Python SDK and CLI runtime: **OpenAI**, under the upstream Apache-2.0 license.
+- Modly host application: **Lightning Pixel**.
+
+See `THIRD_PARTY_NOTICES.md` for dependency attribution. This independent integration is not affiliated with or endorsed by OpenAI.
+
+## License
+
+The extension wrapper is licensed under the repository's `LICENSE` file. Third-party components retain their own licenses; installing or using Codex remains subject to the applicable upstream license and service terms.
+
 ## Repo orientation
 
 - `manifest.json` — planned identity, UI metadata, and `nodes` definitions for Modly discovery.
-- `setup.py` — Modly setup entrypoint that creates the extension venv and installs the pinned `codex_app_server` Python SDK/dependency source; it does not install the Codex CLI.
+- `setup.py` — Modly setup entrypoint that creates the extension venv and installs `openai-codex==0.154.0` with its matching CLI runtime dependency.
 - `generator.py` — Modly-facing orchestration entrypoint.
 - `codex_backend/` — Codex adapter, preflight, persistence, contracts, and errors.
 - `docs/architecture.md` — module boundaries and recommended implementation order.

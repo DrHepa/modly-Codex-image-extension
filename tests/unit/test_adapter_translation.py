@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import base64
-import inspect
 import sys
 from collections.abc import Callable
-from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from pydantic import BaseModel, ValidationError
 
 import codex_backend.adapter as adapter_module
 import generator as generator_module
@@ -30,8 +27,9 @@ def _fake_sdk_module(
     turn_status: str = "failed",
     error_message: str = "stream disconnected before completion",
     on_run: Callable[[], None] | None = None,
+    run_error: Exception | None = None,
 ) -> SimpleNamespace:
-    recorded_configs = []
+    recorded_thread_starts: list[dict[str, object]] = []
 
     class FakeTextInput:
         def __init__(self, value: str) -> None:
@@ -41,21 +39,21 @@ def _fake_sdk_module(
         def __init__(self, path: str) -> None:
             self.path = path
 
-    class FakeAppServerConfig:
-        def __init__(self, *, codex_bin: str, cwd: str) -> None:
-            self.codex_bin = codex_bin
-            self.cwd = cwd
+    class FakeTurnResult:
+        id = "turn-1"
+        status = SimpleNamespace(value=turn_status)
+        error = SimpleNamespace(message=error_message)
+        items = persisted_items
 
     class FakeTurnHandle:
         id = "turn-1"
 
-        def run(self) -> SimpleNamespace:
+        def run(self) -> FakeTurnResult:
             if on_run is not None:
                 on_run()
-            return SimpleNamespace(
-                status=SimpleNamespace(value=turn_status),
-                error=SimpleNamespace(message=error_message),
-            )
+            if run_error is not None:
+                raise run_error
+            return FakeTurnResult()
 
     class FakeThread:
         def turn(self, inputs: list[object]) -> FakeTurnHandle:
@@ -66,14 +64,19 @@ def _fake_sdk_module(
             assert include_turns is True
             return SimpleNamespace(
                 thread=SimpleNamespace(
-                    turns=[SimpleNamespace(id="turn-1", items=persisted_items)],
+                    turns=[
+                        SimpleNamespace(
+                            id="turn-1",
+                            status=SimpleNamespace(value=turn_status),
+                            error=SimpleNamespace(message=error_message),
+                            items=persisted_items,
+                        )
+                    ],
                 ),
             )
 
     class FakeCodex:
-        def __init__(self, *, config: FakeAppServerConfig) -> None:
-            self.config = config
-            recorded_configs.append(config)
+        def __init__(self) -> None:
             self.metadata = SimpleNamespace(
                 serverInfo=SimpleNamespace(name="fake-codex", version="0.1"),
             )
@@ -84,15 +87,19 @@ def _fake_sdk_module(
         def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
             return False
 
-        def thread_start(self) -> FakeThread:
+        def thread_start(self, **kwargs: object) -> FakeThread:
+            recorded_thread_starts.append(dict(kwargs))
             return FakeThread()
+
+    class FakeSandbox:
+        workspace_write = "workspace-write"
 
     return SimpleNamespace(
         Codex=FakeCodex,
-        AppServerConfig=FakeAppServerConfig,
+        Sandbox=FakeSandbox,
         TextInput=FakeTextInput,
         LocalImageInput=FakeLocalImageInput,
-        recorded_configs=recorded_configs,
+        recorded_thread_starts=recorded_thread_starts,
     )
 
 
@@ -232,6 +239,7 @@ def test_sdk_thread_inputs_keep_internal_output_metadata_out_of_prompt_hints(tmp
         "workspace_root": "/wrong/workspace",
         "output_target": "wrong.png",
         "style": "comic",
+        "model": "gpt-image-custom",
     }
 
     inputs = adapter_module._sdk_thread_inputs(FakeModule, TEXT_TO_IMAGE_MODE, payload)
@@ -246,6 +254,7 @@ def test_sdk_thread_inputs_keep_internal_output_metadata_out_of_prompt_hints(tmp
     assert "cwd" not in instruction_text
     assert "codex/text-to-image-abc.png" not in instruction_text
     assert "wrong.png" not in instruction_text
+    assert "gpt-image-custom" not in instruction_text
 
 
 def test_side_image_params_are_not_echoed_into_adapter_instructions(tmp_path: Path) -> None:
@@ -345,6 +354,76 @@ def test_normalize_result_extracts_saved_path_from_sdk_camel_case_mapping() -> N
     assert result.machine_code is None
 
 
+def test_normalize_result_unwraps_official_sdk_absolute_path_root_model() -> None:
+    class FakeAbsolutePathBuf:
+        def __init__(self, root: str) -> None:
+            self.root = root
+
+        def model_dump(self) -> str:
+            return self.root
+
+        def __str__(self) -> str:
+            return f"root={self.root!r}"
+
+    result = normalize_result(
+        {
+            "items": [
+                SimpleNamespace(
+                    saved_path=FakeAbsolutePathBuf("/tmp/generated-root-model.png"),
+                )
+            ]
+        }
+    )
+
+    assert result.saved_path == Path("/tmp/generated-root-model.png")
+    assert result.machine_code is None
+
+
+def test_normalize_result_ignores_input_paths_in_official_thread_items() -> None:
+    class FakeRootModel:
+        def __init__(self, root: object) -> None:
+            self.root = root
+
+        def model_dump(self) -> object:
+            if hasattr(self.root, "model_dump"):
+                return self.root.model_dump()
+            return self.root
+
+    class FakeAbsolutePathBuf(FakeRootModel):
+        pass
+
+    items = [
+        FakeRootModel(
+            {
+                "type": "userMessage",
+                "content": [
+                    {"type": "text", "text": "Edit the attached image."},
+                    {"type": "localImage", "path": "/tmp/codex-input.png"},
+                ],
+            }
+        ),
+        FakeRootModel({"type": "imageView", "path": "/tmp/codex-input.png"}),
+        FakeRootModel(
+            {
+                "type": "imageGeneration",
+                "saved_path": FakeAbsolutePathBuf("/tmp/generated-output.png"),
+                "result": base64.b64encode(b"\x89PNG\r\n\x1a\nresult").decode("ascii"),
+            }
+        ),
+        FakeRootModel(
+            {
+                "type": "agentMessage",
+                "text": "Saved one edited image: `/tmp/final-copy.png`",
+            }
+        ),
+    ]
+
+    result = normalize_result({"items": items})
+
+    assert result.saved_path == Path("/tmp/generated-output.png")
+    assert result.machine_code is None
+
+
 def test_normalize_result_decodes_nested_base64_result_without_treating_it_as_a_path() -> None:
     image_bytes = b"\x89PNG\r\n\x1a\npreview"
     encoded = base64.b64encode(image_bytes).decode("ascii")
@@ -370,13 +449,16 @@ def test_normalize_result_decodes_data_uri_result_without_treating_it_as_a_path(
     assert result.media_type == "image/png"
 
 
-def test_run_sdk_turn_recovers_saved_path_from_failed_persisted_turn() -> None:
-    module = _fake_sdk_module(persisted_items=[{"saved_path": "/tmp/generated-after-disconnect.png"}])
+def test_run_sdk_turn_recovers_saved_path_when_official_handle_run_raises() -> None:
+    module = _fake_sdk_module(
+        persisted_items=[{"saved_path": "/tmp/generated-after-disconnect.png"}],
+        run_error=RuntimeError("Codex turn failed: stream disconnected before completion"),
+    )
 
     raw = adapter_module._run_sdk_turn(
         module,
         TEXT_TO_IMAGE_MODE,
-        {"prompt": "draw a fox", "codex_bin": "/tmp/codex"},
+        {"prompt": "draw a fox"},
     )
     result = normalize_result(raw)
 
@@ -399,13 +481,44 @@ def test_run_sdk_turn_uses_process_cwd_instead_of_workspace_root(tmp_path: Path,
         TEXT_TO_IMAGE_MODE,
         {
             "prompt": "draw a fox",
-            "codex_bin": "/tmp/codex",
             "_codex_workspace_root": str(workspace_root),
             "_codex_output_target": "codex/text-to-image-result.png",
         },
     )
 
-    assert module.recorded_configs[0].cwd == str(actual_cwd.resolve())
+    assert module.recorded_thread_starts == [
+        {"cwd": str(actual_cwd.resolve()), "sandbox": "workspace-write"}
+    ]
+
+
+def test_run_sdk_turn_passes_non_empty_model_literal_to_thread_start(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.chdir(tmp_path)
+    module = _fake_sdk_module(persisted_items=[{"saved_path": "/tmp/generated.png"}], turn_status="completed")
+
+    adapter_module._run_sdk_turn(
+        module,
+        TEXT_TO_IMAGE_MODE,
+        {"prompt": "draw a fox", "model": "vendor/model-experimental"},
+    )
+
+    assert module.recorded_thread_starts == [
+        {
+            "cwd": str(tmp_path.resolve()),
+            "sandbox": "workspace-write",
+            "model": "vendor/model-experimental",
+        }
+    ]
+
+
+def test_run_sdk_turn_omits_blank_model_from_thread_start(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.chdir(tmp_path)
+    module = _fake_sdk_module(persisted_items=[{"saved_path": "/tmp/generated.png"}], turn_status="completed")
+
+    adapter_module._run_sdk_turn(module, TEXT_TO_IMAGE_MODE, {"prompt": "draw a fox", "model": "   "})
+
+    assert module.recorded_thread_starts == [
+        {"cwd": str(tmp_path.resolve()), "sandbox": "workspace-write"}
+    ]
 
 
 def test_run_sdk_turn_uses_new_top_level_codex_output_under_actual_cwd_as_fallback(
@@ -440,7 +553,6 @@ def test_run_sdk_turn_uses_new_top_level_codex_output_under_actual_cwd_as_fallba
         TEXT_TO_IMAGE_MODE,
         {
             "prompt": "draw a fox",
-            "codex_bin": "/tmp/codex",
             "_codex_workspace_root": str(workspace_root),
             "_codex_output_target": "codex/text-to-image-result.png",
         },
@@ -451,104 +563,36 @@ def test_run_sdk_turn_uses_new_top_level_codex_output_under_actual_cwd_as_fallba
 
 
 def test_run_sdk_turn_raises_failed_turn_when_no_saved_path_was_persisted() -> None:
-    module = _fake_sdk_module(persisted_items=[])
+    module = _fake_sdk_module(
+        persisted_items=[],
+        run_error=RuntimeError("Codex turn failed: stream disconnected before completion"),
+    )
 
     with pytest.raises(CodexExtensionError) as exc_info:
         adapter_module._run_sdk_turn(
             module,
             TEXT_TO_IMAGE_MODE,
-            {"prompt": "draw a fox", "codex_bin": "/tmp/codex"},
+            {"prompt": "draw a fox"},
         )
 
     assert exc_info.value.machine_code == RUNTIME_CODE_CALL_FAILED
     assert "stream disconnected before completion" in str(exc_info.value)
 
 
-def test_default_invoker_accepts_unknown_reasoning_effort_values_without_rewriting_them(
-    monkeypatch,
-) -> None:  # noqa: ANN001
-    class LegacyReasoningEffort(Enum):
-        none = "none"
-        minimal = "minimal"
-        low = "low"
-        medium = "medium"
-        high = "high"
-        xhigh = "xhigh"
-
-    class LegacyThreadStartResponse(BaseModel):
-        reasoningEffort: LegacyReasoningEffort
-
-    with pytest.raises(ValidationError, match="reasoningEffort"):
-        LegacyThreadStartResponse.model_validate({"reasoningEffort": "ultra"})
-
+def test_default_invoker_uses_official_openai_codex_sdk(monkeypatch) -> None:  # noqa: ANN001
     module = _fake_sdk_module(
         persisted_items=[{"saved_path": "/tmp/generated.png"}],
         turn_status="completed",
     )
-    module.ReasoningEffort = LegacyReasoningEffort
-    original_thread_start = module.Codex.thread_start
-    validated_response_efforts: list[LegacyReasoningEffort] = []
+    monkeypatch.setattr(adapter_module, "_load_openai_codex", lambda: module)
 
-    def thread_start_with_newer_response(self):  # noqa: ANN001, ANN202
-        response = LegacyThreadStartResponse.model_validate({"reasoningEffort": "ultra"})
-        validated_response_efforts.append(response.reasoningEffort)
-        return original_thread_start(self)
+    raw = adapter_module._default_invoke(TEXT_TO_IMAGE_MODE, {"prompt": "draw a fox"})
 
-    module.Codex.thread_start = thread_start_with_newer_response
-    monkeypatch.setattr(adapter_module, "_load_codex_app_server", lambda: module)
-
-    adapter_module._default_invoke(
-        TEXT_TO_IMAGE_MODE,
-        {"prompt": "draw a fox", "codex_bin": "/tmp/codex"},
-    )
-
-    patched_missing = inspect.getattr_static(LegacyReasoningEffort, "_missing_")
-    adapter_module._default_invoke(
-        TEXT_TO_IMAGE_MODE,
-        {"prompt": "draw a fox", "codex_bin": "/tmp/codex"},
-    )
-
-    assert inspect.getattr_static(LegacyReasoningEffort, "_missing_") is patched_missing
-    assert [effort.value for effort in validated_response_efforts] == ["ultra", "ultra"]
-    assert LegacyReasoningEffort("xhigh") is LegacyReasoningEffort.xhigh
-    for raw_value in ("ultra", "max", "vendor/future", " "):
-        assert LegacyReasoningEffort(raw_value).value == raw_value
-    for invalid_value in ("", None, 42):
-        with pytest.raises(ValueError):
-            LegacyReasoningEffort(invalid_value)
-
-
-def test_default_invoker_preserves_sdk_reasoning_effort_missing_handler(monkeypatch) -> None:  # noqa: ANN001
-    class FutureReasoningEffort(Enum):
-        xhigh = "xhigh"
-
-        @classmethod
-        def _missing_(cls, value):  # noqa: ANN001, ANN206
-            if value == "future-native":
-                return cls.xhigh
-            return None
-
-    module = _fake_sdk_module(
-        persisted_items=[{"saved_path": "/tmp/generated.png"}],
-        turn_status="completed",
-    )
-    module.ReasoningEffort = FutureReasoningEffort
-    original_missing = inspect.getattr_static(FutureReasoningEffort, "_missing_")
-    monkeypatch.setattr(adapter_module, "_load_codex_app_server", lambda: module)
-
-    adapter_module._default_invoke(
-        TEXT_TO_IMAGE_MODE,
-        {"prompt": "draw a fox", "codex_bin": "/tmp/codex"},
-    )
-
-    assert inspect.getattr_static(FutureReasoningEffort, "_missing_") is original_missing
-    assert FutureReasoningEffort("future-native") is FutureReasoningEffort.xhigh
-    with pytest.raises(ValueError):
-        FutureReasoningEffort("ultra")
+    assert normalize_result(raw).saved_path == Path("/tmp/generated.png")
 
 
 def test_default_adapter_reports_missing_public_sdk_exports(monkeypatch) -> None:  # noqa: ANN001
-    monkeypatch.setattr("codex_backend.adapter._load_codex_app_server", lambda: object())
+    monkeypatch.setattr("codex_backend.adapter._load_openai_codex", lambda: object())
 
     with pytest.raises(Exception) as exc_info:
         CodexAdapter().text_to_image("draw a fox")
@@ -563,15 +607,15 @@ def test_extension_site_packages_candidates_include_windows_venv_path(tmp_path: 
     assert tmp_path / "venv" / "Lib" / "site-packages" in candidates
 
 
-def test_load_codex_app_server_discovers_extension_venv_site_packages(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
+def test_load_openai_codex_discovers_extension_venv_site_packages(tmp_path: Path, monkeypatch) -> None:  # noqa: ANN001
     site_packages = tmp_path / "venv" / "Lib" / "site-packages"
     site_packages.mkdir(parents=True)
-    (site_packages / "codex_app_server.py").write_text("VALUE = 'from-extension-venv'\n", encoding="utf-8")
+    (site_packages / "openai_codex.py").write_text("VALUE = 'from-extension-venv'\n", encoding="utf-8")
 
     monkeypatch.setattr(adapter_module, "EXTENSION_ROOT", tmp_path)
-    monkeypatch.delitem(sys.modules, "codex_app_server", raising=False)
+    monkeypatch.delitem(sys.modules, "openai_codex", raising=False)
     monkeypatch.setattr(sys, "path", [entry for entry in sys.path if entry != str(site_packages)])
 
-    module = adapter_module._load_codex_app_server()
+    module = adapter_module._load_openai_codex()
 
     assert module.VALUE == "from-extension-venv"

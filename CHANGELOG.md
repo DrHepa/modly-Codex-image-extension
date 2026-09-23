@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.4 - 2026-09-23
+
+### Fixed
+
+- Replaces image-input descriptor objects with upstream-compatible `inputs: ["image", "image", "image", "image"]`, avoiding the Modly workflow black screen caused by object entries.
+- Reads Modly secondary connections from `params.extra_image_paths`, preserves their order, and omits null/empty gaps while keeping the primary multipart image first.
+- Replaces the legacy `codex_app_server_sdk`/external CLI combination with the official pinned `openai-codex==0.154.0` SDK and its matching `openai-codex-cli-bin==0.154.0` runtime, removing the `serviceTier="default"` validation mismatch.
+- Pins `0.154.0`, the first verified published compatible SDK release, instead of the unavailable `0.153.4` package version.
+- Recovers persisted image-generation output after official `TurnHandle.run()` raises for a failed turn by reading the thread with the retained handle ID before closing Codex.
+- Unwraps the official `AbsolutePathBuf` root model before path conversion so saved paths do not become invalid strings such as `root='/tmp/result.png'`.
+- Restricts saved-path harvesting from official thread history to `imageGeneration` items, so primary/reference `userMessage` and `imageView` paths cannot be mistaken for multiple generated outputs.
+
+### Added
+
+- Adds an optional free-form `model` parameter to both nodes. Empty uses Codex configuration; non-empty values are passed literally to `thread_start(model=...)` and never embedded in instructions.
+
+### Validation boundary
+
+- Package metadata, real SDK signatures/models, and repository tests are verified on Linux ARM64.
+- Linux ARM64 authoritative E2E passed on the official 0.154.0 path: paired SDK/CLI-bin setup, HTTP 200 health, error-free reload, default-model and multi-input/explicit-`gpt-6-astra` jobs, workspace persistence, HTTP 200 `image/png` delivery, and visual QA.
+- Multi-input job `cefd6d9b-61e1-4901-9082-1837ce2f17f7` completed at 100% with two image inputs; its 1254x1254 PNG has SHA-256 `488c1d54c292636570b4e8e0627a9894c434cdb3b790387f12d0255a33a7b14c`.
+- Default-model job `799bf881-2945-483b-9cff-6b8786a3f576` completed at 100% with one image input; its 1254x1254 PNG has SHA-256 `a402d5b894d55e0105e81951c7e23e01d4d6c35166f4713d3e9983209c2d3f92`.
+- Earlier Linux/Windows generation evidence for the retired integration remains historical and does not validate other platforms on the official path.
+
 ## 0.1.3 - 2026-05-06
 
 ### Fixed
